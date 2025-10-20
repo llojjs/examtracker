@@ -1,0 +1,55 @@
+# Package managers
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+# Keep exactly one lockfile; DO NOT ignore your chosen one
+# (commit one of these; ignore the others to avoid conflicts)
+# If you use npm: commit package-lock.json and ignore the rest:
+yarn.lock
+pnpm-lock.yaml
+
+# Build output
+dist/
+build/
+*.log
+
+# Vite
+.vite/
+vite.config.local.*
+
+# TypeScript
+*.tsbuildinfo
+
+# Env & secrets
+.env
+.env.*
+!.env.example
+
+# Tools / caches
+.eslintcache
+.stylelintcache
+.cache/
+.parcel-cache/
+
+# Testing
+coverage/
+.vscode-test/
+test-results/
+playwright-report/
+
+# Storybook (if added later)
+storybook-static/
+
+# IDE / OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# App-specific (optional)
+# If you keep example PDFs or local uploads in repo folder, ignore them:
+public/sample-pdfs/
+uploads/
