@@ -38,6 +38,14 @@ export interface Exam {
   questions: Question[];
   extractedText?: string;
   tags?: string[];
+  archived?: boolean;
+}
+
+export interface Course {
+  code: string;
+  name: string;
+  archived?: boolean;
+  createdAt: Date;
 }
 
 export interface CourseStats {
@@ -67,6 +75,23 @@ export interface Badge {
   unlockedAt?: Date;
 }
 
+export type TaskPriority = 'low' | 'medium' | 'high';
+
+export interface Task {
+  id: string;
+  courseCode: string;
+  title: string;
+  completed: boolean;
+  priority?: TaskPriority;
+  deadline?: Date;
+  createdAt: Date;
+}
+
+export interface CourseChecklist {
+  courseCode: string;
+  tasks: Task[];
+}
+
 export interface UserProgress {
   totalXP: number;
   level: number;
@@ -74,4 +99,5 @@ export interface UserProgress {
   longestStreak: number;
   lastStudyDate?: Date;
   badges: Badge[];
+  unlockedBadgeIds: string[];
 }

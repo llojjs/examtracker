@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Search, SlidersHorizontal, ArrowUpDown, Grid3x3, List, Folder, ChevronRight, ArrowLeft } from 'lucide-react';
+import { Search, SlidersHorizontal, ArrowUpDown, Grid3x3, List, Folder, ChevronRight, ArrowLeft, MoreVertical, Edit2, Trash2, Archive, ArchiveRestore } from 'lucide-react';
 import { Input } from './ui/input';
 import { Button } from './ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
@@ -8,26 +8,42 @@ import { Label } from './ui/label';
 import { Checkbox } from './ui/checkbox';
 import { Card } from './ui/card';
 import { Badge } from './ui/badge';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from './ui/dropdown-menu';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from './ui/alert-dialog';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { ExamCard } from './ExamCard';
-import { Exam, ExamStatus } from '../types/exam';
+import { CourseChecklist } from './CourseChecklist';
+import { Exam, ExamStatus, Task, CourseChecklist as CourseChecklistType } from '../types/exam';
+import { toast } from 'sonner@2.0.3';
 
 interface ExamLibraryProps {
   exams: Exam[];
   onExamClick: (exam: Exam) => void;
+  onUpdateExams: (exams: Exam[]) => void;
+  courseTasks: CourseChecklistType[];
+  onUpdateCourseTasks: (tasks: CourseChecklistType[]) => void;
 }
 
 type SortOption = 'date-desc' | 'date-asc' | 'course' | 'progress' | 'points';
 
-export function ExamLibrary({ exams, onExamClick }: ExamLibraryProps) {
+export function ExamLibrary({ exams, onExamClick, onUpdateExams, courseTasks, onUpdateCourseTasks }: ExamLibraryProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<SortOption>('date-desc');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [selectedCourse, setSelectedCourse] = useState<string | null>(null);
+  const [showArchived, setShowArchived] = useState(false);
   
   // Filters
   const [selectedCourses, setSelectedCourses] = useState<string[]>([]);
   const [selectedStatuses, setSelectedStatuses] = useState<ExamStatus[]>([]);
   const [selectedYears, setSelectedYears] = useState<number[]>([]);
+  
+  // Course management
+  const [courseToDelete, setCourseToDelete] = useState<string | null>(null);
+  const [courseToEdit, setCourseToEdit] = useState<{ code: string; name: string } | null>(null);
+  const [editCourseName, setEditCourseName] = useState('');
+  const [editCourseCode, setEditCourseCode] = useState('');
 
   // Get unique values for filters
   const courseCodes = useMemo(() => 
@@ -151,10 +167,91 @@ export function ExamLibrary({ exams, onExamClick }: ExamLibraryProps) {
 
   // Get exams for current view (either all courses or specific course)
   const currentExams = selectedCourse 
-    ? filteredExams.filter(e => e.courseCode === selectedCourse)
-    : filteredExams;
+    ? filteredExams.filter(e => e.courseCode === selectedCourse && (showArchived ? e.archived : !e.archived))
+    : filteredExams.filter(e => showArchived ? e.archived : !e.archived);
 
   const currentCourseData = selectedCourse ? examsByCourse.get(selectedCourse) : null;
+
+  // Course management functions
+  const handleDeleteCourse = (courseCode: string) => {
+    setCourseToDelete(courseCode);
+  };
+
+  const confirmDeleteCourse = () => {
+    if (!courseToDelete) return;
+    
+    const updatedExams = exams.filter(e => e.courseCode !== courseToDelete);
+    onUpdateExams(updatedExams);
+    
+    // Also remove tasks for this course
+    const updatedCourseTasks = courseTasks.filter(ct => ct.courseCode !== courseToDelete);
+    onUpdateCourseTasks(updatedCourseTasks);
+    
+    toast.success(`Kursen ${courseToDelete} har tagits bort`);
+    setCourseToDelete(null);
+    if (selectedCourse === courseToDelete) {
+      setSelectedCourse(null);
+    }
+  };
+
+  const handleArchiveCourse = (courseCode: string, archive: boolean) => {
+    const updatedExams = exams.map(e => 
+      e.courseCode === courseCode ? { ...e, archived: archive } : e
+    );
+    onUpdateExams(updatedExams);
+    toast.success(`Kursen ${courseCode} har ${archive ? 'arkiverats' : 'återställts'}`);
+  };
+
+  const handleEditCourse = (courseCode: string, courseName: string) => {
+    setCourseToEdit({ code: courseCode, name: courseName });
+    setEditCourseCode(courseCode);
+    setEditCourseName(courseName);
+  };
+
+  const confirmEditCourse = () => {
+    if (!courseToEdit || !editCourseCode.trim() || !editCourseName.trim()) return;
+    
+    const updatedExams = exams.map(e => 
+      e.courseCode === courseToEdit.code 
+        ? { ...e, courseCode: editCourseCode, courseName: editCourseName }
+        : e
+    );
+    onUpdateExams(updatedExams);
+    
+    // Update tasks as well
+    const updatedCourseTasks = courseTasks.map(ct =>
+      ct.courseCode === courseToEdit.code
+        ? { ...ct, courseCode: editCourseCode }
+        : ct
+    );
+    onUpdateCourseTasks(updatedCourseTasks);
+    
+    toast.success('Kursen har uppdaterats');
+    setCourseToEdit(null);
+    if (selectedCourse === courseToEdit.code) {
+      setSelectedCourse(editCourseCode);
+    }
+  };
+
+  const getCourseTasks = (courseCode: string): Task[] => {
+    const checklist = courseTasks.find(ct => ct.courseCode === courseCode);
+    return checklist?.tasks || [];
+  };
+
+  const updateCourseTasks = (courseCode: string, tasks: Task[]) => {
+    const existingIndex = courseTasks.findIndex(ct => ct.courseCode === courseCode);
+    let updatedCourseTasks: CourseChecklistType[];
+    
+    if (existingIndex >= 0) {
+      updatedCourseTasks = courseTasks.map((ct, idx) =>
+        idx === existingIndex ? { ...ct, tasks } : ct
+      );
+    } else {
+      updatedCourseTasks = [...courseTasks, { courseCode, tasks }];
+    }
+    
+    onUpdateCourseTasks(updatedCourseTasks);
+  };
 
   return (
     <div className="space-y-6">
@@ -331,25 +428,60 @@ export function ExamLibrary({ exams, onExamClick }: ExamLibraryProps) {
         </div>
       </div>
 
+      {/* Archive Toggle */}
+      {!selectedCourse && (
+        <div className="flex justify-end">
+          <Button
+            variant={showArchived ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setShowArchived(!showArchived)}
+          >
+            {showArchived ? <ArchiveRestore className="w-4 h-4 mr-2" /> : <Archive className="w-4 h-4 mr-2" />}
+            {showArchived ? 'Visa aktiva kurser' : 'Visa arkiverade'}
+          </Button>
+        </div>
+      )}
+
       {/* Content */}
       {selectedCourse ? (
-        // Show exams in selected course
-        currentExams.length === 0 ? (
-          <div className="text-center py-12">
-            <p className="text-muted-foreground">Inga tentor hittades</p>
-          </div>
-        ) : (
-          <div className={viewMode === 'grid' ? 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4' : 'space-y-3'}>
-            {currentExams.map(exam => (
-              <ExamCard
-                key={exam.id}
-                exam={exam}
-                onClick={() => onExamClick(exam)}
-                compact={viewMode === 'list'}
-              />
-            ))}
-          </div>
-        )
+        // Show course detail with tabs
+        <Tabs defaultValue="exams" className="space-y-4">
+          <TabsList>
+            <TabsTrigger value="exams">
+              Tentor ({currentExams.length})
+            </TabsTrigger>
+            <TabsTrigger value="planning">
+              Planering
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="exams">
+            {currentExams.length === 0 ? (
+              <div className="text-center py-12">
+                <p className="text-muted-foreground">Inga tentor hittades</p>
+              </div>
+            ) : (
+              <div className={viewMode === 'grid' ? 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4' : 'space-y-3'}>
+                {currentExams.map(exam => (
+                  <ExamCard
+                    key={exam.id}
+                    exam={exam}
+                    onClick={() => onExamClick(exam)}
+                    compact={viewMode === 'list'}
+                  />
+                ))}
+              </div>
+            )}
+          </TabsContent>
+
+          <TabsContent value="planning">
+            <CourseChecklist
+              courseCode={selectedCourse}
+              tasks={getCourseTasks(selectedCourse)}
+              onUpdateTasks={(tasks) => updateCourseTasks(selectedCourse, tasks)}
+            />
+          </TabsContent>
+        </Tabs>
       ) : (
         // Show course folders
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -369,15 +501,23 @@ export function ExamLibrary({ exams, onExamClick }: ExamLibraryProps) {
               );
               const progress = totalQuestions > 0 ? (solvedQuestions / totalQuestions) * 100 : 0;
 
+              const isArchived = courseExams.some(e => e.archived);
+              
               return (
                 <Card
                   key={courseCode}
-                  className="p-6 hover:shadow-lg transition-all cursor-pointer border-2 hover:border-primary/50"
-                  onClick={() => setSelectedCourse(courseCode)}
+                  className="p-6 hover:shadow-lg transition-all border-2 hover:border-primary/50 relative group"
                 >
-                  <div className="flex items-start gap-4">
-                    <div className="p-3 bg-primary/10 rounded-lg">
-                      <Folder className="w-8 h-8 text-primary" />
+                  <div 
+                    className="flex items-start gap-4 cursor-pointer"
+                    onClick={() => setSelectedCourse(courseCode)}
+                  >
+                    <div className={`p-3 rounded-lg ${isArchived ? 'bg-muted' : 'bg-primary/10'}`}>
+                      {isArchived ? (
+                        <Archive className="w-8 h-8 text-muted-foreground" />
+                      ) : (
+                        <Folder className="w-8 h-8 text-primary" />
+                      )}
                     </div>
                     <div className="flex-1 min-w-0">
                       <h3 className="truncate">{courseCode}</h3>
@@ -391,6 +531,11 @@ export function ExamLibrary({ exams, onExamClick }: ExamLibraryProps) {
                         <Badge variant="outline">
                           {totalQuestions} uppgifter
                         </Badge>
+                        {isArchived && (
+                          <Badge variant="outline" className="bg-muted">
+                            Arkiverad
+                          </Badge>
+                        )}
                       </div>
                       <div className="mt-3">
                         <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
@@ -405,13 +550,122 @@ export function ExamLibrary({ exams, onExamClick }: ExamLibraryProps) {
                         </div>
                       </div>
                     </div>
-                    <ChevronRight className="w-5 h-5 text-muted-foreground flex-shrink-0" />
+                    
+                    {/* Right side icons stacked vertically */}
+                    <div className="flex flex-col items-center gap-2 flex-shrink-0">
+                      <ChevronRight className="w-5 h-5 text-muted-foreground" />
+                      <div className="opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" className="h-5 w-5 p-0">
+                              <MoreVertical className="w-4 h-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={(e) => {
+                              e.stopPropagation();
+                              handleEditCourse(courseCode, courseName);
+                            }}>
+                              <Edit2 className="w-4 h-4 mr-2" />
+                              Redigera kurs
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={(e) => {
+                              e.stopPropagation();
+                              handleArchiveCourse(courseCode, !isArchived);
+                            }}>
+                              {isArchived ? (
+                                <>
+                                  <ArchiveRestore className="w-4 h-4 mr-2" />
+                                  Återställ kurs
+                                </>
+                              ) : (
+                                <>
+                                  <Archive className="w-4 h-4 mr-2" />
+                                  Arkivera kurs
+                                </>
+                              )}
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem 
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeleteCourse(courseCode);
+                              }}
+                              className="text-destructive focus:text-destructive"
+                            >
+                              <Trash2 className="w-4 h-4 mr-2" />
+                              Ta bort kurs
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+                    </div>
                   </div>
                 </Card>
               );
             })}
         </div>
       )}
+
+      {/* Delete Course Dialog */}
+      <AlertDialog open={courseToDelete !== null} onOpenChange={(open) => !open && setCourseToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Ta bort kurs?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Är du säker på att du vill ta bort kursen {courseToDelete}? 
+              Alla tentor och uppgifter för denna kurs kommer att raderas permanent. 
+              Denna åtgärd kan inte ångras.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Avbryt</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDeleteCourse} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Ta bort
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Edit Course Dialog */}
+      <Dialog open={courseToEdit !== null} onOpenChange={(open) => !open && setCourseToEdit(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Redigera kurs</DialogTitle>
+            <DialogDescription>
+              Ändra kursens namn och kod. Detta kommer att uppdatera alla relaterade tentor.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="courseCode">Kurskod</Label>
+              <Input
+                id="courseCode"
+                value={editCourseCode}
+                onChange={(e) => setEditCourseCode(e.target.value)}
+                placeholder="t.ex. TDA417"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="courseName">Kursnamn</Label>
+              <Input
+                id="courseName"
+                value={editCourseName}
+                onChange={(e) => setEditCourseName(e.target.value)}
+                placeholder="t.ex. Datastrukturer"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCourseToEdit(null)}>
+              Avbryt
+            </Button>
+            <Button onClick={confirmEditCourse}>
+              Spara ändringar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

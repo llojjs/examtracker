@@ -1,9 +1,10 @@
-import { Exam, UserSettings, UserProgress } from '../types/exam';
+import { Exam, UserSettings, UserProgress, CourseChecklist } from '../types/exam';
 
 const STORAGE_KEYS = {
   EXAMS: 'examtracker-exams',
   SETTINGS: 'examtracker-settings',
-  PROGRESS: 'examtracker-progress'
+  PROGRESS: 'examtracker-progress',
+  COURSE_TASKS: 'examtracker-course-tasks'
 };
 
 export function saveExams(exams: Exam[]): void {
@@ -87,7 +88,8 @@ export function loadProgress(): UserProgress {
         level: 0,
         currentStreak: 0,
         longestStreak: 0,
-        badges: []
+        badges: [],
+        unlockedBadgeIds: []
       };
     }
     const progress = JSON.parse(data);
@@ -97,6 +99,7 @@ export function loadProgress(): UserProgress {
       currentStreak: progress.currentStreak || 0,
       longestStreak: progress.longestStreak || 0,
       badges: progress.badges || [],
+      unlockedBadgeIds: progress.unlockedBadgeIds || [],
       lastStudyDate: progress.lastStudyDate ? new Date(progress.lastStudyDate) : undefined
     };
   } catch (error) {
@@ -106,8 +109,38 @@ export function loadProgress(): UserProgress {
       level: 0,
       currentStreak: 0,
       longestStreak: 0,
-      badges: []
+      badges: [],
+      unlockedBadgeIds: []
     };
+  }
+}
+
+export function saveCourseTasks(courseTasks: CourseChecklist[]): void {
+  try {
+    localStorage.setItem(STORAGE_KEYS.COURSE_TASKS, JSON.stringify(courseTasks));
+  } catch (error) {
+    console.error('Failed to save course tasks:', error);
+  }
+}
+
+export function loadCourseTasks(): CourseChecklist[] {
+  try {
+    const data = localStorage.getItem(STORAGE_KEYS.COURSE_TASKS);
+    if (!data) return [];
+    
+    const courseTasks = JSON.parse(data);
+    // Convert date strings back to Date objects
+    return courseTasks.map((ct: any) => ({
+      ...ct,
+      tasks: ct.tasks.map((task: any) => ({
+        ...task,
+        createdAt: new Date(task.createdAt),
+        deadline: task.deadline ? new Date(task.deadline) : undefined
+      }))
+    }));
+  } catch (error) {
+    console.error('Failed to load course tasks:', error);
+    return [];
   }
 }
 
@@ -115,11 +148,13 @@ export function exportData(): string {
   const exams = loadExams();
   const settings = loadSettings();
   const progress = loadProgress();
+  const courseTasks = loadCourseTasks();
   
   return JSON.stringify({
     exams,
     settings,
     progress,
+    courseTasks,
     exportDate: new Date(),
     version: '1.0'
   }, null, 2);
@@ -137,6 +172,9 @@ export function importData(jsonString: string): boolean {
     }
     if (data.progress) {
       saveProgress(data.progress);
+    }
+    if (data.courseTasks) {
+      saveCourseTasks(data.courseTasks);
     }
     
     return true;

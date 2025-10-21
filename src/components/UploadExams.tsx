@@ -1,13 +1,17 @@
-import React, { useState, useCallback } from 'react';
-import { Upload, FileText, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
+import React, { useState, useCallback, useMemo } from 'react';
+import { Upload, FileText, CheckCircle2, AlertCircle, Loader2, Calendar, ArrowRight } from 'lucide-react';
 import { Button } from './ui/button';
 import { Card } from './ui/card';
+import { Badge } from './ui/badge';
 import { Progress } from './ui/progress';
+import { Separator } from './ui/separator';
 import { mockOCRExtraction } from '../utils/mockData';
 import { Exam } from '../types/exam';
 
 interface UploadExamsProps {
   onExamsUploaded: (exams: Exam[]) => void;
+  exams: Exam[];
+  onViewAllExams: () => void;
 }
 
 interface UploadFile {
@@ -18,10 +22,30 @@ interface UploadFile {
   error?: string;
 }
 
-export function UploadExams({ onExamsUploaded }: UploadExamsProps) {
+export function UploadExams({ onExamsUploaded, exams, onViewAllExams }: UploadExamsProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [uploadFiles, setUploadFiles] = useState<UploadFile[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
+
+  // Get 5 most recently uploaded exams
+  const recentExams = useMemo(() => {
+    return [...exams]
+      .sort((a, b) => {
+        const dateA = a.uploadDate?.getTime() || 0;
+        const dateB = b.uploadDate?.getTime() || 0;
+        return dateB - dateA;
+      })
+      .slice(0, 5);
+  }, [exams]);
+
+  const formatDate = (date?: Date) => {
+    if (!date) return 'Okänt datum';
+    return new Date(date).toLocaleDateString('sv-SE', { 
+      year: 'numeric', 
+      month: 'short', 
+      day: 'numeric' 
+    });
+  };
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -213,6 +237,65 @@ export function UploadExams({ onExamsUploaded }: UploadExamsProps) {
             </Card>
           ))}
         </div>
+      )}
+
+      {/* Recently Uploaded Exams */}
+      {recentExams.length > 0 && (
+        <>
+          <Separator className="my-8" />
+          
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3>Nyligen uppladdade tentor</h3>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Dina {recentExams.length} senaste uppladdningar
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {recentExams.map((exam) => (
+                <Card key={exam.id} className="p-4 hover:shadow-md transition-shadow">
+                  <div className="space-y-3">
+                    <div>
+                      <div className="flex items-start justify-between gap-2">
+                        <h4 className="truncate">{exam.courseCode}</h4>
+                        <FileText className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                      </div>
+                      <p className="text-sm text-muted-foreground truncate mt-1">
+                        {exam.courseName}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <Calendar className="w-3 h-3" />
+                      <span>{formatDate(exam.uploadDate)}</span>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <Badge variant="secondary" className="text-xs">
+                        {exam.questions.length} uppgifter
+                      </Badge>
+                      {exam.totalPoints && (
+                        <Badge variant="outline" className="text-xs">
+                          {exam.totalPoints}p
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+                </Card>
+              ))}
+            </div>
+
+            <div className="flex justify-center pt-2">
+              <Button variant="outline" onClick={onViewAllExams} className="group">
+                Visa alla tentor
+                <ArrowRight className="w-4 h-4 ml-2 group-hover:translate-x-1 transition-transform" />
+              </Button>
+            </div>
+          </div>
+        </>
       )}
     </div>
   );

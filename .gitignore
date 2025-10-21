@@ -1,55 +1,65 @@
-# Package managers
+# Environment
+# See https://www.toptal.com/developers/gitignore/api/node,visualstudiocode,windows,macos
+
+# Node
 node_modules/
+
+# Logs
 npm-debug.log*
+pnpm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-pnpm-debug.log*
-# Keep exactly one lockfile; DO NOT ignore your chosen one
-# (commit one of these; ignore the others to avoid conflicts)
-# If you use npm: commit package-lock.json and ignore the rest:
-yarn.lock
-pnpm-lock.yaml
-
-# Build output
-dist/
-build/
 *.log
 
-# Vite
+# Build outputs
+dist/
+build/
+out/
 .vite/
+
+# Vite / dev
 vite.config.local.*
 
 # TypeScript
 *.tsbuildinfo
 
-# Env & secrets
+# Env files (keep example in repo if present)
 .env
-.env.*
+.env.*.local
 !.env.example
-
-# Tools / caches
-.eslintcache
-.stylelintcache
-.cache/
-.parcel-cache/
 
 # Testing
 coverage/
+playwright-report/
 .vscode-test/
 test-results/
-playwright-report/
 
-# Storybook (if added later)
+# Storybook
 storybook-static/
 
-# IDE / OS
+# IDEs / Editors
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.iml
+
+# OS files
 .DS_Store
 Thumbs.db
-.idea/
-.vscode/
-*.swp
 
-# App-specific (optional)
-# If you keep example PDFs or local uploads in repo folder, ignore them:
+# Caches and temp
+.parcel-cache/
+.cache/
+tmp/
+temp/
+
+# Misc
 public/sample-pdfs/
 uploads/
+*.pem
+
+# Do NOT ignore lockfiles - commit one lockfile per project (package-lock.json / pnpm-lock.yaml / yarn.lock)
+# If you intentionally want to ignore additional files, add them below.

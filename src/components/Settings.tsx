@@ -71,6 +71,7 @@ export function Settings({ settings, onSettingsChange, onClearData }: SettingsPr
     const newSize = value[0];
     setFontSize(newSize);
     onSettingsChange({ ...settings, fontSize: newSize });
+    // Update CSS variable for font size (not base font size)
     document.documentElement.style.setProperty('--font-size', `${newSize}px`);
   };
 

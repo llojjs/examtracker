@@ -5,6 +5,8 @@ import { Card } from './ui/card';
 import { Badge } from './ui/badge';
 import { ScrollArea } from './ui/scroll-area';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
+import { Checkbox } from './ui/checkbox';
+import { Progress } from './ui/progress';
 import { QuestionDetail } from './QuestionDetail';
 import { Exam, Question } from '../types/exam';
 
@@ -44,6 +46,14 @@ export function ExamDetail({ exam, onBack, onUpdateQuestion }: ExamDetailProps) 
     return exam.questions.reduce((sum, q) => sum + (q.timeSpent || 0), 0);
   }, [exam.questions]);
 
+  const solvedCount = useMemo(() => {
+    return exam.questions.filter(q => q.status === 'solved').length;
+  }, [exam.questions]);
+
+  const progressPercent = useMemo(() => {
+    return exam.questions.length > 0 ? (solvedCount / exam.questions.length) * 100 : 0;
+  }, [solvedCount, exam.questions.length]);
+
   const formatTotalTime = (minutes: number) => {
     if (minutes === 0) return '0 min';
     const hours = Math.floor(minutes / 60);
@@ -60,13 +70,19 @@ export function ExamDetail({ exam, onBack, onUpdateQuestion }: ExamDetailProps) 
     }
   };
 
+  const handleCheckboxToggle = (questionId: string, currentStatus: string) => {
+    // Toggle between solved and not-started
+    const newStatus = currentStatus === 'solved' ? 'not-started' : 'solved';
+    onUpdateQuestion(questionId, { status: newStatus });
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
       <div>
         <Button variant="ghost" onClick={onBack} className="mb-4">
           <ArrowLeft className="w-4 h-4 mr-2" />
-          Tillbaka till biblioteket
+          Tillbaka till kursens tentor
         </Button>
         
         <div className="flex items-start justify-between gap-4">
@@ -75,19 +91,29 @@ export function ExamDetail({ exam, onBack, onUpdateQuestion }: ExamDetailProps) 
             <p className="text-muted-foreground mt-2">
               {formatDate(exam.examDate)}
             </p>
-            {totalTimeSpent > 0 && (
-              <div className="flex items-center gap-2 mt-3 text-sm">
-                <Clock className="w-4 h-4 text-primary" />
-                <span className="text-muted-foreground">Total tid:</span>
-                <Badge variant="outline" className="gap-1">
-                  {formatTotalTime(totalTimeSpent)}
-                </Badge>
+            
+            {/* Progress Summary */}
+            <div className="mt-4 space-y-2">
+              <div className="flex items-center gap-3 text-sm">
+                <span className="text-muted-foreground">
+                  <span className="text-success">{solvedCount}</span> / {exam.questions.length} uppgifter klara
+                </span>
+                {totalTimeSpent > 0 && (
+                  <>
+                    <span className="text-muted-foreground">•</span>
+                    <div className="flex items-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5 text-primary" />
+                      <span className="text-muted-foreground">{formatTotalTime(totalTimeSpent)}</span>
+                    </div>
+                  </>
+                )}
               </div>
-            )}
+              <Progress value={progressPercent} className="h-2 w-full max-w-md" />
+            </div>
           </div>
           
           {exam.totalPoints && (
-            <Badge variant="secondary" className="text-lg px-4 py-2">
+            <Badge variant="secondary" className="text-lg px-4 py-2 flex-shrink-0">
               {exam.totalPoints} poäng
             </Badge>
           )}
@@ -120,11 +146,21 @@ export function ExamDetail({ exam, onBack, onUpdateQuestion }: ExamDetailProps) 
               {exam.questions.map((question) => (
                 <Card
                   key={question.id}
-                  className="p-4 hover:shadow-md transition-shadow cursor-pointer"
-                  onClick={() => setSelectedQuestion(question)}
+                  className="p-4 hover:shadow-md transition-shadow"
                 >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex-1 min-w-0">
+                  <div className="flex items-start gap-3">
+                    <div className="flex-shrink-0 pt-1">
+                      <Checkbox
+                        checked={question.status === 'solved'}
+                        onCheckedChange={() => handleCheckboxToggle(question.id, question.status)}
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    </div>
+                    
+                    <div 
+                      className="flex-1 min-w-0 cursor-pointer"
+                      onClick={() => setSelectedQuestion(question)}
+                    >
                       <div className="flex items-center gap-2 mb-2">
                         <h4>Uppgift {question.number}</h4>
                         <Badge 
@@ -161,7 +197,10 @@ export function ExamDetail({ exam, onBack, onUpdateQuestion }: ExamDetailProps) 
                       )}
                     </div>
                     
-                    <ChevronRight className="w-5 h-5 text-muted-foreground flex-shrink-0" />
+                    <ChevronRight 
+                      className="w-5 h-5 text-muted-foreground flex-shrink-0 cursor-pointer" 
+                      onClick={() => setSelectedQuestion(question)}
+                    />
                   </div>
                 </Card>
               ))}
