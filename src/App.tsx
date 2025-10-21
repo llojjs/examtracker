@@ -33,7 +33,8 @@ import { CourseOverviewAnalytics } from './components/CourseOverviewAnalytics';
 import { LevelXP } from './components/LevelXP';
 import { Settings } from './components/Settings';
 import { Exam, Question, UserSettings, UserProgress, CourseChecklist } from './types/exam';
-import { saveExams, loadExams, saveSettings, loadSettings, saveProgress, loadProgress, saveCourseTasks, loadCourseTasks } from './utils/storage';
+import { saveExams, loadExams, saveSettings, loadSettings, saveProgress, loadProgress, saveCourseTasks, loadCourseTasks, loadExamsAsync, loadSettingsAsync, loadProgressAsync, loadCourseTasksAsync } from './utils/storage';
+import { migrateLocalStorageToIndexedDB } from './utils/migrate';
 import { generateMockExams } from './utils/mockData';
 
 type View = 'upload' | 'library' | 'detail' | 'courses' | 'levelxp' | 'settings';
@@ -60,31 +61,36 @@ export default function App() {
 
   // Load data on mount
   useEffect(() => {
-    const loadedExams = loadExams();
-    const loadedSettings = loadSettings();
-    const loadedProgress = loadProgress();
-    const loadedCourseTasks = loadCourseTasks();
+    (async () => {
+      await migrateLocalStorageToIndexedDB();
+      const [loadedExams, loadedSettings, loadedProgress, loadedCourseTasks] = await Promise.all([
+        loadExamsAsync().catch(() => loadExams()),
+        loadSettingsAsync().catch(() => loadSettings()),
+        loadProgressAsync().catch(() => loadProgress()),
+        loadCourseTasksAsync().catch(() => loadCourseTasks())
+      ]);
 
-    // If no exams exist, create mock data for demo
-    if (loadedExams.length === 0) {
-      const mockExams = generateMockExams(8);
-      setExams(mockExams);
-      saveExams(mockExams);
-    } else {
-      setExams(loadedExams);
-    }
+      // If no exams exist, create mock data for demo
+      if (loadedExams.length === 0) {
+        const mockExams = generateMockExams(8);
+        setExams(mockExams);
+        saveExams(mockExams);
+      } else {
+        setExams(loadedExams);
+      }
 
-    setSettings(loadedSettings);
-    setProgress(loadedProgress);
-    setCourseTasks(loadedCourseTasks);
+      setSettings(loadedSettings);
+      setProgress(loadedProgress);
+      setCourseTasks(loadedCourseTasks);
 
-    // Apply theme
-    if (loadedSettings.theme === 'dark') {
-      document.documentElement.classList.add('dark');
-    }
+      // Apply theme
+      if (loadedSettings.theme === 'dark') {
+        document.documentElement.classList.add('dark');
+      }
 
-    // Apply font size
-    document.documentElement.style.setProperty('--font-size', `${loadedSettings.fontSize}px`);
+      // Apply font size
+      document.documentElement.style.setProperty('--font-size', `${loadedSettings.fontSize}px`);
+    })();
   }, []);
 
   // Save exams when they change
@@ -167,10 +173,10 @@ export default function App() {
   };
 
   const toggleTheme = () => {
-    const newTheme = settings.theme === 'light' ? 'dark' : 'light';
-    const newSettings = { ...settings, theme: newTheme };
-    setSettings(newSettings);
-    saveSettings(newSettings);
+  const newTheme: 'light' | 'dark' = settings.theme === 'light' ? 'dark' : 'light';
+  const newSettings = { ...settings, theme: newTheme } as UserSettings;
+  setSettings(newSettings);
+  saveSettings(newSettings);
     
     if (newTheme === 'dark') {
       document.documentElement.classList.add('dark');

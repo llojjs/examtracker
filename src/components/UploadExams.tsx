@@ -5,7 +5,8 @@ import { Card } from './ui/card';
 import { Badge } from './ui/badge';
 import { Progress } from './ui/progress';
 import { Separator } from './ui/separator';
-import { mockOCRExtraction } from '../utils/mockData';
+import { parsePdf } from '../utils/parsePdf';
+import { loadExamsAsync, saveExamsAsync } from '../utils/storage';
 import { Exam } from '../types/exam';
 
 interface UploadExamsProps {
@@ -80,7 +81,7 @@ export function UploadExams({ onExamsUploaded, exams, onViewAllExams }: UploadEx
       ));
 
       try {
-        const extractedData = await mockOCRExtraction(uploadFiles[i].file);
+        const extractedData = await parsePdf(uploadFiles[i].file);
         
         setUploadFiles(prev => prev.map((uf, idx) => 
           idx === i ? { ...uf, status: 'processing', progress: 80, extractedData } : uf
@@ -101,7 +102,7 @@ export function UploadExams({ onExamsUploaded, exams, onViewAllExams }: UploadEx
 
     setIsProcessing(false);
 
-    // Create exam objects and notify parent
+    // Create exam objects, persist to IndexedDB and notify parent
     const completedExams: Exam[] = uploadFiles
       .filter(uf => uf.status === 'complete' && uf.extractedData)
       .map(uf => ({
@@ -112,6 +113,16 @@ export function UploadExams({ onExamsUploaded, exams, onViewAllExams }: UploadEx
       } as Exam));
 
     if (completedExams.length > 0) {
+      // Persist combined exams list into IndexedDB (merge with existing)
+      try {
+        const existing = await loadExamsAsync();
+        const merged = [...existing, ...completedExams];
+        await saveExamsAsync(merged);
+      } catch (err) {
+        console.warn('Failed to persist uploaded exams to IndexedDB:', err);
+      }
+
+      // Notify parent with newly uploaded exams
       onExamsUploaded(completedExams);
     }
   };

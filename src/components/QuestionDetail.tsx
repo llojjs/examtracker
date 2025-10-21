@@ -57,12 +57,12 @@ export function QuestionDetail({ question, onUpdate }: QuestionDetailProps) {
   // Timer state
   const [isTimerRunning, setIsTimerRunning] = useState(false);
   const [timerSeconds, setTimerSeconds] = useState(0);
-  const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const timerIntervalRef = useRef<number | null>(null);
   
   useEffect(() => {
     return () => {
       if (timerIntervalRef.current) {
-        clearInterval(timerIntervalRef.current);
+        clearInterval(timerIntervalRef.current as number);
       }
     };
   }, []);
@@ -73,6 +73,8 @@ export function QuestionDetail({ question, onUpdate }: QuestionDetailProps) {
       timerIntervalRef.current = setInterval(() => {
         setTimerSeconds(prev => prev + 1);
       }, 1000);
+      // TypeScript in DOM expects number for setInterval return
+      timerIntervalRef.current = timerIntervalRef.current as unknown as number;
     }
   };
   

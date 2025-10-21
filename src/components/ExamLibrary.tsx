@@ -15,7 +15,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { ExamCard } from './ExamCard';
 import { CourseChecklist } from './CourseChecklist';
 import { Exam, ExamStatus, Task, CourseChecklist as CourseChecklistType } from '../types/exam';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 
 interface ExamLibraryProps {
   exams: Exam[];
@@ -562,14 +562,14 @@ export function ExamLibrary({ exams, onExamClick, onUpdateExams, courseTasks, on
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={(e) => {
+                            <DropdownMenuItem onClick={(e: React.MouseEvent) => {
                               e.stopPropagation();
                               handleEditCourse(courseCode, courseName);
                             }}>
                               <Edit2 className="w-4 h-4 mr-2" />
                               Redigera kurs
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={(e) => {
+                            <DropdownMenuItem onClick={(e: React.MouseEvent) => {
                               e.stopPropagation();
                               handleArchiveCourse(courseCode, !isArchived);
                             }}>
@@ -587,7 +587,7 @@ export function ExamLibrary({ exams, onExamClick, onUpdateExams, courseTasks, on
                             </DropdownMenuItem>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem 
-                              onClick={(e) => {
+                              onClick={(e: React.MouseEvent) => {
                                 e.stopPropagation();
                                 handleDeleteCourse(courseCode);
                               }}
