@@ -2,6 +2,7 @@
 
 :root {
   --font-size: 16px;
+  --base-font-size: 16px;
   --background: #ffffff;
   --foreground: #0a0a0a;
   --card: #ffffff;
@@ -199,55 +200,67 @@
 @layer base {
   :where(:not(:has([class*=" text-"]), :not(:has([class^="text-"])))) {
     h1 {
-      font-size: 1.5em;
+      font-size: calc(1.5 * var(--font-size));
       font-weight: var(--font-weight-medium);
       line-height: 1.5;
     }
 
     h2 {
-      font-size: 1.25em;
+      font-size: calc(1.25 * var(--font-size));
       font-weight: var(--font-weight-medium);
       line-height: 1.5;
     }
 
     h3 {
-      font-size: 1.125em;
+      font-size: calc(1.125 * var(--font-size));
       font-weight: var(--font-weight-medium);
       line-height: 1.5;
     }
 
     h4 {
-      font-size: 1em;
+      font-size: var(--font-size);
       font-weight: var(--font-weight-medium);
       line-height: 1.5;
     }
 
     p {
-      font-size: 1em;
+      font-size: var(--font-size);
       font-weight: var(--font-weight-normal);
       line-height: 1.5;
     }
 
     label {
-      font-size: 1em;
+      font-size: var(--font-size);
       font-weight: var(--font-weight-medium);
       line-height: 1.5;
     }
 
     button {
-      font-size: 1em;
+      font-size: var(--font-size);
       font-weight: var(--font-weight-medium);
       line-height: 1.5;
     }
 
     input {
-      font-size: 1em;
+      font-size: var(--font-size);
       font-weight: var(--font-weight-normal);
       line-height: 1.5;
+    }
+
+    span {
+      font-size: var(--font-size);
+    }
+
+    a {
+      font-size: var(--font-size);
+    }
+
+    textarea {
+      font-size: var(--font-size);
     }
   }
 }
 
 html {
-  font-size: var(--font-size);
+  font-size: var(--base-font-size);
 }

@@ -66,19 +66,19 @@ export function ExamCard({ exam, onClick, compact = false }: ExamCardProps) {
 
           {!compact && (
             <>
-              <div className="flex items-center gap-4 text-sm text-muted-foreground mb-3">
-                <div className="flex items-center gap-1">
+              <div className="flex items-center flex-wrap gap-x-4 gap-y-2 text-sm text-muted-foreground mb-3">
+                <div className="flex items-center gap-1 flex-shrink-0">
                   <Calendar className="w-3.5 h-3.5" />
-                  <span>{formatDate(exam.examDate)}</span>
+                  <span className="whitespace-nowrap">{formatDate(exam.examDate)}</span>
                 </div>
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-1 flex-shrink-0">
                   <CheckCircle2 className="w-3.5 h-3.5" />
-                  <span>{solvedCount}/{totalCount} uppgifter</span>
+                  <span className="whitespace-nowrap">{solvedCount}/{totalCount} uppgifter</span>
                 </div>
                 {totalTimeSpent > 0 && (
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-1 flex-shrink-0">
                     <Clock className="w-3.5 h-3.5 text-primary" />
-                    <span>{formatTime(totalTimeSpent)}</span>
+                    <span className="whitespace-nowrap">{formatTime(totalTimeSpent)}</span>
                   </div>
                 )}
               </div>

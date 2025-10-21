@@ -29,19 +29,20 @@ import {
 import { UploadExams } from './components/UploadExams';
 import { ExamLibrary } from './components/ExamLibrary';
 import { ExamDetail } from './components/ExamDetail';
-import { CourseOverview } from './components/CourseOverview';
-import { Analytics } from './components/Analytics';
+import { CourseOverviewAnalytics } from './components/CourseOverviewAnalytics';
+import { LevelXP } from './components/LevelXP';
 import { Settings } from './components/Settings';
-import { Exam, Question, UserSettings, UserProgress } from './types/exam';
-import { saveExams, loadExams, saveSettings, loadSettings, saveProgress, loadProgress } from './utils/storage';
+import { Exam, Question, UserSettings, UserProgress, CourseChecklist } from './types/exam';
+import { saveExams, loadExams, saveSettings, loadSettings, saveProgress, loadProgress, saveCourseTasks, loadCourseTasks } from './utils/storage';
 import { generateMockExams } from './utils/mockData';
 
-type View = 'upload' | 'library' | 'detail' | 'courses' | 'analytics' | 'settings';
+type View = 'upload' | 'library' | 'detail' | 'courses' | 'levelxp' | 'settings';
 
 export default function App() {
   const [exams, setExams] = useState<Exam[]>([]);
   const [selectedExam, setSelectedExam] = useState<Exam | null>(null);
   const [currentView, setCurrentView] = useState<View>('library');
+  const [courseTasks, setCourseTasks] = useState<CourseChecklist[]>([]);
   const [settings, setSettings] = useState<UserSettings>({
     theme: 'light',
     language: 'sv',
@@ -53,7 +54,8 @@ export default function App() {
     level: 0,
     currentStreak: 0,
     longestStreak: 0,
-    badges: []
+    badges: [],
+    unlockedBadgeIds: []
   });
 
   // Load data on mount
@@ -61,6 +63,7 @@ export default function App() {
     const loadedExams = loadExams();
     const loadedSettings = loadSettings();
     const loadedProgress = loadProgress();
+    const loadedCourseTasks = loadCourseTasks();
 
     // If no exams exist, create mock data for demo
     if (loadedExams.length === 0) {
@@ -73,6 +76,7 @@ export default function App() {
 
     setSettings(loadedSettings);
     setProgress(loadedProgress);
+    setCourseTasks(loadedCourseTasks);
 
     // Apply theme
     if (loadedSettings.theme === 'dark') {
@@ -89,6 +93,11 @@ export default function App() {
       saveExams(exams);
     }
   }, [exams]);
+
+  // Save course tasks when they change
+  useEffect(() => {
+    saveCourseTasks(courseTasks);
+  }, [courseTasks]);
 
   const handleExamsUploaded = (newExams: Exam[]) => {
     setExams(prev => [...prev, ...newExams]);
@@ -152,7 +161,8 @@ export default function App() {
 
   const handleClearData = () => {
     setExams([]);
-    setProgress({ totalXP: 0, level: 0, currentStreak: 0, longestStreak: 0, badges: [] });
+    setCourseTasks([]);
+    setProgress({ totalXP: 0, level: 0, currentStreak: 0, longestStreak: 0, badges: [], unlockedBadgeIds: [] });
     localStorage.clear();
   };
 
@@ -172,8 +182,8 @@ export default function App() {
   const menuItems = [
     { id: 'library' as View, label: 'Tentabibliotek', icon: Library },
     { id: 'upload' as View, label: 'Ladda upp', icon: Upload },
-    { id: 'courses' as View, label: 'Kursöversikt', icon: BookOpen },
-    { id: 'analytics' as View, label: 'Statistik', icon: BarChart3 },
+    { id: 'courses' as View, label: 'Kursöversikt & Statistik', icon: BarChart3 },
+    { id: 'levelxp' as View, label: 'Level & XP', icon: Trophy },
     { id: 'settings' as View, label: 'Inställningar', icon: SettingsIcon }
   ];
 
@@ -271,11 +281,21 @@ export default function App() {
         <main className="flex-1 overflow-auto">
           <div className="container mx-auto p-6 max-w-7xl">
             {currentView === 'upload' && (
-              <UploadExams onExamsUploaded={handleExamsUploaded} />
+              <UploadExams 
+                onExamsUploaded={handleExamsUploaded} 
+                exams={exams}
+                onViewAllExams={() => setCurrentView('library')}
+              />
             )}
 
             {currentView === 'library' && (
-              <ExamLibrary exams={exams} onExamClick={handleExamClick} />
+              <ExamLibrary 
+                exams={exams} 
+                onExamClick={handleExamClick} 
+                onUpdateExams={setExams}
+                courseTasks={courseTasks}
+                onUpdateCourseTasks={setCourseTasks}
+              />
             )}
 
             {currentView === 'detail' && selectedExam && (
@@ -289,11 +309,11 @@ export default function App() {
             )}
 
             {currentView === 'courses' && (
-              <CourseOverview exams={exams} />
+              <CourseOverviewAnalytics exams={exams} />
             )}
 
-            {currentView === 'analytics' && (
-              <Analytics exams={exams} />
+            {currentView === 'levelxp' && (
+              <LevelXP exams={exams} />
             )}
 
             {currentView === 'settings' && (
