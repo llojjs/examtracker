@@ -142,6 +142,27 @@ export function Settings({ settings, onSettingsChange, onClearData }: SettingsPr
         </div>
       </Card>
 
+      {/* OCR / Analys */}
+      <Card className="p-6">
+        <h3 className="mb-4">Analys</h3>
+        <div className="space-y-6">
+          <div className="flex items-center justify-between">
+            <div className="space-y-1">
+              <Label>Djup OCR</Label>
+              <p className="text-sm text-muted-foreground">
+                Om standardpasset inte hittar uppgifter: skanna alla sidor med OCR (långsammare)
+              </p>
+            </div>
+            <Switch
+              checked={!!settings.deepOcr}
+              onCheckedChange={(checked) =>
+                onSettingsChange({ ...settings, deepOcr: checked })
+              }
+            />
+          </div>
+        </div>
+      </Card>
+
       {/* Language */}
       <Card className="p-6">
         <h3 className="mb-4">Språk</h3>

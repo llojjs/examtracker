@@ -29,6 +29,7 @@ export interface Exam {
   id: string;
   fileName: string;
   fileUrl?: string; // Local blob URL or actual URL
+  fileBlob?: Blob; // Persisted PDF data for reloads
   uploadDate: Date;
   examDate?: Date;
   courseName: string;
@@ -65,6 +66,7 @@ export interface UserSettings {
   fontSize: number;
   compactView: boolean;
   colorTheme?: string;
+  deepOcr?: boolean; // Scan all pages with OCR when needed
 }
 
 export interface Badge {

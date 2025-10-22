@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { ArrowLeft, FileText, ChevronRight, Clock } from 'lucide-react';
+import { ArrowLeft, FileText, ChevronRight, Clock, Plus } from 'lucide-react';
 import { Button } from './ui/button';
 import { Card } from './ui/card';
 import { Badge } from './ui/badge';
@@ -14,6 +14,7 @@ interface ExamDetailProps {
   exam: Exam;
   onBack: () => void;
   onUpdateQuestion: (questionId: string, updates: Partial<Question>) => void;
+  onAddQuestion: (partial?: Partial<Question>) => void;
 }
 
 const statusColors: Record<string, string> = {
@@ -30,7 +31,7 @@ const statusLabels: Record<string, string> = {
   'review': 'Repetera',
 };
 
-export function ExamDetailView({ exam, onBack, onUpdateQuestion }: ExamDetailProps) {
+export function ExamDetailView({ exam, onBack, onUpdateQuestion, onAddQuestion }: ExamDetailProps) {
   const [selectedQuestion, setSelectedQuestion] = useState<Question | null>(null);
 
   const formatDate = (date?: Date) => {
@@ -151,9 +152,19 @@ export function ExamDetailView({ exam, onBack, onUpdateQuestion }: ExamDetailPro
 
         {/* Questions List */}
         <div className="space-y-4">
-          <h3>Uppgifter ({exam.questions.length})</h3>
+          <div className="flex items-center justify-between">
+            <h3>Uppgifter ({exam.questions.length})</h3>
+            <Button size="sm" onClick={() => onAddQuestion()}>
+              <Plus className="w-4 h-4 mr-2" /> Lägg till uppgift
+            </Button>
+          </div>
           <ScrollArea className="h-[600px] pr-4">
             <div className="space-y-3">
+              {exam.questions.length === 0 && (
+                <Card className="p-4 text-sm text-muted-foreground">
+                  Inga uppgifter hittades automatiskt. Använd knappen "Lägg till uppgift" för att lägga till manuellt.
+                </Card>
+              )}
               {exam.questions.map((question) => (
                 <Card key={question.id} className="p-4 hover:shadow-md transition-shadow">
                   <div className="flex items-start gap-3">

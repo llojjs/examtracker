@@ -59,6 +59,7 @@ temp/
 # Misc
 public/sample-pdfs/
 uploads/
+server/data/
 *.pem
 
 # Do NOT ignore lockfiles - commit one lockfile per project (package-lock.json / pnpm-lock.yaml / yarn.lock)

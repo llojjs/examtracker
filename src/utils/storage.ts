@@ -10,7 +10,9 @@ const STORAGE_KEYS = {
 
 export function saveExams(exams: Exam[]): void {
   try {
-    localStorage.setItem(STORAGE_KEYS.EXAMS, JSON.stringify(exams));
+    // Strip non-serializable fields (Blob) for localStorage fallback
+    const serializable = exams.map(({ fileBlob, ...e }) => e);
+    localStorage.setItem(STORAGE_KEYS.EXAMS, JSON.stringify(serializable));
     // Also persist to IndexedDB asynchronously for gradual migration
     // fire-and-forget; the async function already falls back to localStorage on error
     // (no await to avoid blocking callers)
@@ -61,15 +63,24 @@ export async function loadExamsAsync(): Promise<Exam[]> {
   try {
     const items = await db.exams.toArray();
     if (!items || items.length === 0) return loadExams();
-    return items.map((exam: any) => ({
-      ...exam,
-      uploadDate: new Date(exam.uploadDate),
-      examDate: exam.examDate ? new Date(exam.examDate) : undefined,
-      questions: (exam.questions || []).map((q: any) => ({
-        ...q,
-        comments: (q.comments || []).map((c: any) => ({ ...c, timestamp: new Date(c.timestamp) }))
-      }))
-    }));
+    return items.map((exam: any) => {
+      const restored: Exam = {
+        ...exam,
+        uploadDate: new Date(exam.uploadDate),
+        examDate: exam.examDate ? new Date(exam.examDate) : undefined,
+        questions: (exam.questions || []).map((q: any) => ({
+          ...q,
+          comments: (q.comments || []).map((c: any) => ({ ...c, timestamp: new Date(c.timestamp) }))
+        }))
+      } as Exam;
+      // Recreate a fresh Blob URL if we have the file blob
+      if (restored.fileBlob && typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function') {
+        try {
+          restored.fileUrl = URL.createObjectURL(restored.fileBlob as any);
+        } catch {}
+      }
+      return restored;
+    });
   } catch (error) {
     console.error('Failed to load exams from IndexedDB:', error);
     return loadExams();
@@ -95,17 +106,22 @@ export function loadSettings(): UserSettings {
         theme: 'light',
         language: 'sv',
         fontSize: 16,
-        compactView: false
+        compactView: false,
+        deepOcr: false
       };
     }
-    return JSON.parse(data);
+    const parsed = JSON.parse(data);
+    // Backfill defaults for new settings
+    if (typeof parsed.deepOcr !== 'boolean') parsed.deepOcr = false;
+    return parsed;
   } catch (error) {
     console.error('Failed to load settings:', error);
     return {
       theme: 'light',
       language: 'sv',
       fontSize: 16,
-      compactView: false
+      compactView: false,
+      deepOcr: false
     };
   }
 }
@@ -300,3 +316,38 @@ export async function loadCourseTasksAsync(): Promise<CourseChecklist[]> {
     return loadCourseTasks();
   }
 }
+
+// Dev-only helper: attempt to persist the raw PDF to a local uploads/ folder
+// via Vite's middleware endpoint (POST /api/upload). If the endpoint doesn't
+// exist (e.g., in production static hosting), this safely no-ops and returns null.
+export async function savePdfToServer(
+  file: Blob,
+  opts: { filename: string; id?: string }
+): Promise<string | null> {
+  try {
+    if (typeof fetch === 'undefined') return null;
+    const params = new URLSearchParams();
+    params.set('filename', opts.filename || 'upload.pdf');
+    if (opts.id) params.set('id', opts.id);
+    const base = ((import.meta as any)?.env?.VITE_API_URL as string) || '';
+    const token = ((import.meta as any)?.env?.VITE_API_TOKEN as string) || '';
+    const url = `${base ? base.replace(/\/$/, '') : ''}/api/upload?${params.toString()}`;
+    const headers: Record<string,string> = { 'Content-Type': (file as any)?.type || 'application/pdf' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: file,
+    });
+    if (!res.ok) return null;
+    const data = await res.json().catch(() => ({} as any));
+    return (data && (data.path || data.filePath)) ? (data.path || data.filePath) : null;
+  } catch (err) {
+    // Endpoint missing or request blocked: ignore
+    return null;
+  }
+}
+
+
+
+

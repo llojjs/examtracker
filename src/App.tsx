@@ -42,6 +42,7 @@ type View = 'upload' | 'library' | 'detail' | 'courses' | 'levelxp' | 'settings'
 
 export default function App() {
   const [exams, setExams] = useState<Exam[]>([]);
+  const [hydrated, setHydrated] = useState(false);
   const [selectedExam, setSelectedExam] = useState<Exam | null>(null);
   const [currentView, setCurrentView] = useState<View>('library');
   const [courseTasks, setCourseTasks] = useState<CourseChecklist[]>([]);
@@ -50,7 +51,8 @@ export default function App() {
     theme: 'light',
     language: 'sv',
     fontSize: 16,
-    compactView: false
+    compactView: false,
+    deepOcr: false
   });
   const [progress, setProgress] = useState<UserProgress>({
     totalXP: 0,
@@ -72,8 +74,11 @@ export default function App() {
         loadCourseTasksAsync().catch(() => loadCourseTasks())
       ]);
 
-      // If no exams exist, create mock data for demo
-      if (loadedExams.length === 0) {
+      // If no exams exist and no prior storage key, create mock data (first run only)
+      const hasStoredKey = (() => {
+        try { return typeof localStorage !== 'undefined' && !!localStorage.getItem('examtracker-exams'); } catch { return false; }
+      })();
+      if (loadedExams.length === 0 && !hasStoredKey) {
         const mockExams = generateMockExams(8);
         setExams(mockExams);
         saveExams(mockExams);
@@ -92,15 +97,17 @@ export default function App() {
 
       // Apply font size
       document.documentElement.style.setProperty('--font-size', `${loadedSettings.fontSize}px`);
+
+      // Mark hydration complete only after initial state has been populated
+      setHydrated(true);
     })();
   }, []);
 
-  // Save exams when they change
+  // Save exams when they change (persist even when empty) after hydration
   useEffect(() => {
-    if (exams.length > 0) {
-      saveExams(exams);
-    }
-  }, [exams]);
+    if (!hydrated) return;
+    saveExams(exams);
+  }, [exams, hydrated]);
 
   // Save course tasks when they change
   useEffect(() => {
@@ -108,7 +115,12 @@ export default function App() {
   }, [courseTasks]);
 
   const handleExamsUploaded = (newExams: Exam[]) => {
-    setExams(prev => [...prev, ...newExams]);
+    // Merge: update existing by id (replacements), append only brand-new ones
+    setExams(prev => {
+      const updated = prev.map(e => newExams.find(n => n.id === e.id) ?? e);
+      const added = newExams.filter(n => !prev.some(e => e.id === n.id));
+      return [...updated, ...added];
+    });
     // Choose the first detected course code from the uploaded exams
     const firstCourse = newExams.find(e => e.courseCode)?.courseCode || null;
     setFocusCourseCode(firstCourse);
@@ -124,6 +136,51 @@ export default function App() {
   const handleBackToLibrary = () => {
     setSelectedExam(null);
     setCurrentView('library');
+  };
+
+  const handleAddQuestion = (examId: string, partial?: Partial<Question>) => {
+    setExams(prev => prev.map(exam => {
+      if (exam.id !== examId) return exam;
+      // Determine next main number
+      const mainNums = exam.questions
+        .map(q => parseInt(String(q.number).match(/\d+/)?.[0] || '0', 10))
+        .filter(n => !Number.isNaN(n));
+      const nextMain = (mainNums.length > 0 ? Math.max(...mainNums) + 1 : 1);
+      const newQ: Question = {
+        id: `q-${Date.now()}-${Math.random().toString(36).slice(2,7)}`,
+        number: partial?.number || String(nextMain),
+        theme: partial?.theme || [],
+        points: partial?.points ?? 0,
+        status: partial?.status || 'not-started',
+        difficulty: partial?.difficulty || 'medium',
+        comments: [],
+      };
+      const updated = { ...exam, questions: [...exam.questions, newQ] } as Exam;
+      updated.totalPoints = updated.questions.reduce((s, q) => s + (q.points || 0), 0);
+      return updated;
+    }));
+
+    if (selectedExam?.id === examId) {
+      setSelectedExam(prev => {
+        if (!prev) return prev;
+        const mainNums = prev.questions
+          .map(q => parseInt(String(q.number).match(/\d+/)?.[0] || '0', 10))
+          .filter(n => !Number.isNaN(n));
+        const nextMain = (mainNums.length > 0 ? Math.max(...mainNums) + 1 : 1);
+        const newQ: Question = {
+          id: `q-${Date.now()}-${Math.random().toString(36).slice(2,7)}`,
+          number: partial?.number || String(nextMain),
+          theme: partial?.theme || [],
+          points: partial?.points ?? 0,
+          status: partial?.status || 'not-started',
+          difficulty: partial?.difficulty || 'medium',
+          comments: [],
+        };
+        const updated = { ...prev, questions: [...prev.questions, newQ] } as Exam;
+        updated.totalPoints = updated.questions.reduce((s, q) => s + (q.points || 0), 0);
+        return updated;
+      });
+    }
   };
 
   const handleUpdateQuestion = (examId: string, questionId: string, updates: Partial<Question>) => {
@@ -304,6 +361,7 @@ export default function App() {
               <UploadExams 
                 onExamsUploaded={handleExamsUploaded} 
                 exams={exams}
+                settings={settings}
                 onViewAllExams={() => setCurrentView('library')}
               />
             )}
@@ -327,6 +385,7 @@ export default function App() {
                 onUpdateQuestion={(questionId, updates) => 
                   handleUpdateQuestion(selectedExam.id, questionId, updates)
                 }
+                onAddQuestion={(partial) => handleAddQuestion(selectedExam.id, partial)}
               />
             )}
 

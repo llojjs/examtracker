@@ -2,9 +2,64 @@
   import { defineConfig } from 'vite';
   import react from '@vitejs/plugin-react-swc';
   import path from 'path';
+  import { promises as fsp } from 'fs';
 
   export default defineConfig({
-    plugins: [react()],
+    plugins: [
+      react(),
+      {
+        name: 'dev-upload-middleware',
+        configureServer(server) {
+          // Minimal dev-only upload endpoint: POST /api/upload?filename=...&id=...
+          server.middlewares.use(async (req, res, next) => {
+            try {
+              if (!req.url) return next();
+              const url = new URL(req.url, 'http://localhost');
+              if (url.pathname !== '/api/upload') return next();
+              if (req.method !== 'POST') {
+                res.statusCode = 405;
+                res.setHeader('Content-Type', 'application/json');
+                res.end(JSON.stringify({ ok: false, error: 'Method not allowed' }));
+                return;
+              }
+
+              const originalName = (url.searchParams.get('filename') || 'upload.pdf').toString();
+              const id = (url.searchParams.get('id') || '').toString();
+              const safeName = originalName.replace(/[^a-zA-Z0-9._-]/g, '_');
+              const baseName = (id ? `${id}-` : '') + safeName;
+
+              const uploadsDir = path.resolve(process.cwd(), 'uploads');
+              await fsp.mkdir(uploadsDir, { recursive: true });
+              const filePath = path.join(uploadsDir, baseName);
+
+              const chunks: Buffer[] = [];
+              req.on('data', (c) => chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c)));
+              req.on('end', async () => {
+                try {
+                  await fsp.writeFile(filePath, Buffer.concat(chunks));
+                  res.statusCode = 200;
+                  res.setHeader('Content-Type', 'application/json');
+                  res.end(JSON.stringify({ ok: true, path: `/uploads/${baseName}` }));
+                } catch (err) {
+                  res.statusCode = 500;
+                  res.setHeader('Content-Type', 'application/json');
+                  res.end(JSON.stringify({ ok: false, error: String(err) }));
+                }
+              });
+              req.on('error', (err) => {
+                res.statusCode = 500;
+                res.setHeader('Content-Type', 'application/json');
+                res.end(JSON.stringify({ ok: false, error: String(err) }));
+              });
+            } catch (err) {
+              res.statusCode = 500;
+              res.setHeader('Content-Type', 'application/json');
+              res.end(JSON.stringify({ ok: false, error: String(err) }));
+            }
+          });
+        },
+      },
+    ],
     resolve: {
       extensions: ['.js', '.jsx', '.ts', '.tsx', '.json'],
       alias: {

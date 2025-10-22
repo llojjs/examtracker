@@ -6,8 +6,8 @@ import { Badge } from './ui/badge';
 import { Progress } from './ui/progress';
 import { Separator } from './ui/separator';
 import { parsePdf } from '../utils/parsePdf';
-import { loadExamsAsync, saveExamsAsync } from '../utils/storage';
-import { Exam } from '../types/exam';
+import { loadExamsAsync, saveExamsAsync, savePdfToServer } from '../utils/storage';
+import { Exam, UserSettings } from '../types/exam';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
@@ -16,6 +16,7 @@ import { toast } from 'sonner';
 interface UploadExamsProps {
   onExamsUploaded: (exams: Exam[]) => void;
   exams: Exam[];
+  settings: UserSettings;
   onViewAllExams: () => void;
 }
 
@@ -27,7 +28,7 @@ interface UploadFile {
   error?: string;
 }
 
-export function UploadExams({ onExamsUploaded, exams, onViewAllExams }: UploadExamsProps) {
+export function UploadExams({ onExamsUploaded, exams, settings, onViewAllExams }: UploadExamsProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [uploadFiles, setUploadFiles] = useState<UploadFile[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -42,6 +43,19 @@ export function UploadExams({ onExamsUploaded, exams, onViewAllExams }: UploadEx
     setCourseDialogOpen(true);
     return new Promise((resolve) => {
       courseDialogResolveRef.current = resolve;
+    });
+  };
+
+  // Duplicate resolution dialog
+  const [dupDialogOpen, setDupDialogOpen] = useState(false);
+  const [dupDialogData, setDupDialogData] = useState<{ existing: Exam | null; incoming: Partial<Exam> | null }>({ existing: null, incoming: null });
+  const dupDialogResolveRef = useRef<(value: 'replace' | 'skip') => void>();
+
+  const promptForDuplicate = (existing: Exam, incoming: Partial<Exam>): Promise<'replace' | 'skip'> => {
+    setDupDialogData({ existing, incoming });
+    setDupDialogOpen(true);
+    return new Promise((resolve) => {
+      dupDialogResolveRef.current = resolve;
     });
   };
 
@@ -96,13 +110,14 @@ export function UploadExams({ onExamsUploaded, exams, onViewAllExams }: UploadEx
 
     // Process files sequentially
     const createdExams: Exam[] = [];
+    const replacedExams: Exam[] = [];
     for (let i = 0; i < uploadFiles.length; i++) {
       setUploadFiles(prev => prev.map((uf, idx) => 
         idx === i ? { ...uf, status: 'processing', progress: 30 } : uf
       ));
 
       try {
-        let extractedData = await parsePdf(uploadFiles[i].file);
+        let extractedData = await parsePdf(uploadFiles[i].file, { deepOcr: !!settings.deepOcr });
 
         // Fallback prompt when courseCode or courseName is missing
         if (!extractedData.courseCode || !extractedData.courseName) {
@@ -155,20 +170,49 @@ export function UploadExams({ onExamsUploaded, exams, onViewAllExams }: UploadEx
           idx === i ? { ...uf, status: 'processing', progress: 80, extractedData } : uf
         ));
 
-        // Duplicate detection: same courseCode + same examDate (by day)
-        if (extractedData.courseCode && extractedData.examDate) {
+        // Duplicate detection: same courseCode + same examDate (by day) + same fileName
+        if (extractedData.courseCode && extractedData.examDate && extractedData.fileName) {
           const codeUpper = extractedData.courseCode.toString().toUpperCase();
           const targetDate = dateKey(extractedData.examDate as Date);
-          const exists = [...exams, ...createdExams].some(e => 
-            e.courseCode.toUpperCase() === codeUpper && dateKey(e.examDate) === targetDate
+          const existingExam = [...exams, ...createdExams].find(e => 
+            e.courseCode.toUpperCase() === codeUpper &&
+            dateKey(e.examDate) === targetDate &&
+            e.fileName === extractedData.fileName
           );
-          if (exists) {
-            const msg = `Duplicerad tenta: ${codeUpper} (${targetDate}) finns redan`;
-            setUploadFiles(prev => prev.map((uf, idx) =>
-              idx === i ? { ...uf, status: 'error', error: msg } : uf
-            ));
-            toast.warning(msg);
-            continue;
+          if (existingExam) {
+            const choice = await promptForDuplicate(existingExam, extractedData);
+            if (choice === 'skip') {
+              setUploadFiles(prev => prev.map((uf, idx) =>
+                idx === i ? { ...uf, status: 'error', error: 'Uppladdning avbröts (dubblett)' } : uf
+              ));
+              continue;
+            } else if (choice === 'replace') {
+              // Build the updated exam, preserving id
+              const updated: Exam = {
+                ...existingExam,
+                ...extractedData as any,
+                id: existingExam.id,
+                uploadDate: new Date(),
+                fileUrl: URL.createObjectURL(uploadFiles[i].file),
+                fileBlob: uploadFiles[i].file,
+              } as Exam;
+              // Try to persist raw PDF to local uploads/ via dev server
+              try {
+                const savedPath = await savePdfToServer(
+                  uploadFiles[i].file,
+                  { filename: extractedData.fileName || uploadFiles[i].file.name, id: updated.id }
+                );
+                if (savedPath) {
+                  toast.success('PDF sparad', { description: savedPath });
+                }
+              } catch {}
+              // Update UI file state
+              setUploadFiles(prev => prev.map((uf, idx) => 
+                idx === i ? { ...uf, status: 'complete', progress: 100, extractedData } : uf
+              ));
+              replacedExams.push(updated);
+              continue;
+            }
           }
         }
 
@@ -185,8 +229,19 @@ export function UploadExams({ onExamsUploaded, exams, onViewAllExams }: UploadEx
           id: `exam-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
           uploadDate: new Date(),
           fileUrl: URL.createObjectURL(uploadFiles[i].file),
+          fileBlob: uploadFiles[i].file,
           ...(extractedData as any),
         } as Exam;
+        // Try to persist raw PDF to local uploads/ via dev server
+        try {
+          const savedPath = await savePdfToServer(
+            uploadFiles[i].file,
+            { filename: extractedData?.fileName || uploadFiles[i].file.name, id: newExam.id }
+          );
+          if (savedPath) {
+            toast.success('PDF sparad', { description: savedPath });
+          }
+        } catch {}
         createdExams.push(newExam);
       } catch (error) {
         setUploadFiles(prev => prev.map((uf, idx) => 
@@ -198,13 +253,18 @@ export function UploadExams({ onExamsUploaded, exams, onViewAllExams }: UploadEx
     setIsProcessing(false);
 
     // Persist exams and notify parent
-    const completedExams: Exam[] = createdExams;
+    const completedExams: Exam[] = [...createdExams, ...replacedExams];
 
     if (completedExams.length > 0) {
       // Persist combined exams list into IndexedDB (merge with existing)
       try {
         const existing = await loadExamsAsync();
-        const merged = [...existing, ...completedExams];
+        // Apply replacements by ID, then append new
+        let merged = existing.map(e => {
+          const repl = replacedExams.find(r => r.id === e.id);
+          return repl ? repl : e;
+        });
+        merged = [...merged, ...createdExams];
         await saveExamsAsync(merged);
       } catch (err) {
         console.warn('Failed to persist uploaded exams to IndexedDB:', err);
@@ -460,6 +520,57 @@ export function UploadExams({ onExamsUploaded, exams, onViewAllExams }: UploadEx
               }}
             >
               Spara
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Duplicate Prompt Dialog */}
+      <Dialog 
+        open={dupDialogOpen}
+        onOpenChange={(open) => {
+          setDupDialogOpen(open);
+          if (!open && dupDialogResolveRef.current) {
+            dupDialogResolveRef.current('skip');
+            dupDialogResolveRef.current = undefined;
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Dubblett hittad</DialogTitle>
+            <DialogDescription>
+              En tenta med samma kurskod, datum och filnamn finns redan.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 py-2 text-sm">
+            <div>
+              <strong>Befintlig:</strong> {dupDialogData.existing?.courseCode} – {dupDialogData.existing?.courseName}
+            </div>
+            <div>
+              <strong>Ny:</strong> {dupDialogData.incoming?.courseCode} – {dupDialogData.incoming?.courseName || 'okänd kurs'}
+            </div>
+            <p>Vill du ersätta den befintliga tentan?</p>
+          </div>
+          <DialogFooter>
+            <Button 
+              variant="outline"
+              onClick={() => {
+                const r = dupDialogResolveRef.current; dupDialogResolveRef.current = undefined;
+                setDupDialogOpen(false);
+                r?.('skip');
+              }}
+            >
+              Avbryt
+            </Button>
+            <Button 
+              onClick={() => {
+                const r = dupDialogResolveRef.current; dupDialogResolveRef.current = undefined;
+                setDupDialogOpen(false);
+                r?.('replace');
+              }}
+            >
+              Ersätt befintlig
             </Button>
           </DialogFooter>
         </DialogContent>
