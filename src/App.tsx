@@ -28,13 +28,14 @@ import {
 } from './components/ui/sidebar';
 import { UploadExams } from './components/UploadExams';
 import { ExamLibrary } from './components/ExamLibrary';
-import { ExamDetail } from './components/ExamDetail';
+import { ExamDetailView } from './components/ExamDetailView';
 import { CourseOverviewAnalytics } from './components/CourseOverviewAnalytics';
 import { LevelXP } from './components/LevelXP';
 import { Settings } from './components/Settings';
 import { Exam, Question, UserSettings, UserProgress, CourseChecklist } from './types/exam';
 import { saveExams, loadExams, saveSettings, loadSettings, saveProgress, loadProgress, saveCourseTasks, loadCourseTasks, loadExamsAsync, loadSettingsAsync, loadProgressAsync, loadCourseTasksAsync } from './utils/storage';
 import { migrateLocalStorageToIndexedDB } from './utils/migrate';
+import { clearAll } from './utils/db';
 import { generateMockExams } from './utils/mockData';
 
 type View = 'upload' | 'library' | 'detail' | 'courses' | 'levelxp' | 'settings';
@@ -44,6 +45,7 @@ export default function App() {
   const [selectedExam, setSelectedExam] = useState<Exam | null>(null);
   const [currentView, setCurrentView] = useState<View>('library');
   const [courseTasks, setCourseTasks] = useState<CourseChecklist[]>([]);
+  const [focusCourseCode, setFocusCourseCode] = useState<string | null>(null);
   const [settings, setSettings] = useState<UserSettings>({
     theme: 'light',
     language: 'sv',
@@ -107,6 +109,10 @@ export default function App() {
 
   const handleExamsUploaded = (newExams: Exam[]) => {
     setExams(prev => [...prev, ...newExams]);
+    // Choose the first detected course code from the uploaded exams
+    const firstCourse = newExams.find(e => e.courseCode)?.courseCode || null;
+    setFocusCourseCode(firstCourse);
+    setSelectedExam(null);
     setCurrentView('library');
   };
 
@@ -166,10 +172,18 @@ export default function App() {
   };
 
   const handleClearData = () => {
-    setExams([]);
-    setCourseTasks([]);
-    setProgress({ totalXP: 0, level: 0, currentStreak: 0, longestStreak: 0, badges: [], unlockedBadgeIds: [] });
-    localStorage.clear();
+    // Fire-and-forget: clear IndexedDB, then reset local state and localStorage
+    (async () => {
+      try {
+        await clearAll(); // Clear IndexedDB (Dexie)
+      } catch (err) {
+        console.error('Failed to clear IndexedDB:', err);
+      }
+      setExams([]);
+      setCourseTasks([]);
+      setProgress({ totalXP: 0, level: 0, currentStreak: 0, longestStreak: 0, badges: [], unlockedBadgeIds: [] });
+      localStorage.clear();
+    })();
   };
 
   const toggleTheme = () => {
@@ -296,16 +310,18 @@ export default function App() {
 
             {currentView === 'library' && (
               <ExamLibrary 
+                key={focusCourseCode || 'library'}
                 exams={exams} 
                 onExamClick={handleExamClick} 
                 onUpdateExams={setExams}
                 courseTasks={courseTasks}
                 onUpdateCourseTasks={setCourseTasks}
+                initialSelectedCourse={focusCourseCode}
               />
             )}
 
             {currentView === 'detail' && selectedExam && (
-              <ExamDetail
+              <ExamDetailView
                 exam={selectedExam}
                 onBack={handleBackToLibrary}
                 onUpdateQuestion={(questionId, updates) => 

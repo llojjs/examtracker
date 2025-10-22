@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Search, SlidersHorizontal, ArrowUpDown, Grid3x3, List, Folder, ChevronRight, ArrowLeft, MoreVertical, Edit2, Trash2, Archive, ArchiveRestore } from 'lucide-react';
 import { Input } from './ui/input';
 import { Button } from './ui/button';
@@ -23,17 +23,25 @@ interface ExamLibraryProps {
   onUpdateExams: (exams: Exam[]) => void;
   courseTasks: CourseChecklistType[];
   onUpdateCourseTasks: (tasks: CourseChecklistType[]) => void;
+  initialSelectedCourse?: string | null;
 }
 
 type SortOption = 'date-desc' | 'date-asc' | 'course' | 'progress' | 'points';
 
-export function ExamLibrary({ exams, onExamClick, onUpdateExams, courseTasks, onUpdateCourseTasks }: ExamLibraryProps) {
+export function ExamLibrary({ exams, onExamClick, onUpdateExams, courseTasks, onUpdateCourseTasks, initialSelectedCourse }: ExamLibraryProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<SortOption>('date-desc');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [selectedCourse, setSelectedCourse] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   
+  // Auto-select or change selected course when parent hints a focus course
+  useEffect(() => {
+    if (initialSelectedCourse) {
+      setSelectedCourse(initialSelectedCourse);
+    }
+  }, [initialSelectedCourse]);
+
   // Filters
   const [selectedCourses, setSelectedCourses] = useState<string[]>([]);
   const [selectedStatuses, setSelectedStatuses] = useState<ExamStatus[]>([]);

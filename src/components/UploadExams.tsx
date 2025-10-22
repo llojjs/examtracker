@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useRef } from 'react';
 import { Upload, FileText, CheckCircle2, AlertCircle, Loader2, Calendar, ArrowRight } from 'lucide-react';
 import { Button } from './ui/button';
 import { Card } from './ui/card';
@@ -8,6 +8,9 @@ import { Separator } from './ui/separator';
 import { parsePdf } from '../utils/parsePdf';
 import { loadExamsAsync, saveExamsAsync } from '../utils/storage';
 import { Exam } from '../types/exam';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
+import { Input } from './ui/input';
+import { Label } from './ui/label';
 
 interface UploadExamsProps {
   onExamsUploaded: (exams: Exam[]) => void;
@@ -27,6 +30,19 @@ export function UploadExams({ onExamsUploaded, exams, onViewAllExams }: UploadEx
   const [isDragging, setIsDragging] = useState(false);
   const [uploadFiles, setUploadFiles] = useState<UploadFile[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
+
+  // Prompt for missing course info
+  const [courseDialogOpen, setCourseDialogOpen] = useState(false);
+  const [courseDialogData, setCourseDialogData] = useState<{ fileName: string; courseCode: string; courseName: string }>({ fileName: '', courseCode: '', courseName: '' });
+  const courseDialogResolveRef = useRef<(value: { courseCode: string; courseName: string } | null) => void>();
+
+  const promptForCourseInfo = (fileName: string, suggestedCode: string = '', suggestedName: string = ''): Promise<{ courseCode: string; courseName: string } | null> => {
+    setCourseDialogData({ fileName, courseCode: suggestedCode, courseName: suggestedName });
+    setCourseDialogOpen(true);
+    return new Promise((resolve) => {
+      courseDialogResolveRef.current = resolve;
+    });
+  };
 
   // Get 5 most recently uploaded exams
   const recentExams = useMemo(() => {
@@ -75,13 +91,37 @@ export function UploadExams({ onExamsUploaded, exams, onViewAllExams }: UploadEx
     setIsProcessing(true);
 
     // Process files sequentially
+    const createdExams: Exam[] = [];
     for (let i = 0; i < uploadFiles.length; i++) {
       setUploadFiles(prev => prev.map((uf, idx) => 
         idx === i ? { ...uf, status: 'processing', progress: 30 } : uf
       ));
 
       try {
-        const extractedData = await parsePdf(uploadFiles[i].file);
+        let extractedData = await parsePdf(uploadFiles[i].file);
+
+        // Fallback prompt when courseCode or courseName is missing
+        if (!extractedData.courseCode || !extractedData.courseName) {
+          const promptResult = await promptForCourseInfo(
+            uploadFiles[i].file.name,
+            (extractedData.courseCode || '').toString(),
+            (extractedData.courseName || '').toString()
+          );
+
+          if (!promptResult) {
+            // Treat as canceled; mark as error and skip
+            setUploadFiles(prev => prev.map((uf, idx) =>
+              idx === i ? { ...uf, status: 'error', error: 'Kursinformation saknas' } : uf
+            ));
+            continue;
+          }
+
+          extractedData = {
+            ...extractedData,
+            courseCode: promptResult.courseCode.trim().toUpperCase(),
+            courseName: promptResult.courseName.trim() || `${promptResult.courseCode.trim().toUpperCase()} - okänd kurs`,
+          } as Partial<Exam>;
+        }
         
         setUploadFiles(prev => prev.map((uf, idx) => 
           idx === i ? { ...uf, status: 'processing', progress: 80, extractedData } : uf
@@ -90,9 +130,19 @@ export function UploadExams({ onExamsUploaded, exams, onViewAllExams }: UploadEx
         // Simulate final processing
         await new Promise(resolve => setTimeout(resolve, 500));
 
+        // Mark UI state as complete
         setUploadFiles(prev => prev.map((uf, idx) => 
-          idx === i ? { ...uf, status: 'complete', progress: 100 } : uf
+          idx === i ? { ...uf, status: 'complete', progress: 100, extractedData } : uf
         ));
+
+        // Create exam object and collect for persistence and parent update
+        const newExam: Exam = {
+          id: `exam-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          uploadDate: new Date(),
+          fileUrl: URL.createObjectURL(uploadFiles[i].file),
+          ...(extractedData as any),
+        } as Exam;
+        createdExams.push(newExam);
       } catch (error) {
         setUploadFiles(prev => prev.map((uf, idx) => 
           idx === i ? { ...uf, status: 'error', error: 'Kunde inte bearbeta filen' } : uf
@@ -102,15 +152,8 @@ export function UploadExams({ onExamsUploaded, exams, onViewAllExams }: UploadEx
 
     setIsProcessing(false);
 
-    // Create exam objects, persist to IndexedDB and notify parent
-    const completedExams: Exam[] = uploadFiles
-      .filter(uf => uf.status === 'complete' && uf.extractedData)
-      .map(uf => ({
-        id: `exam-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        uploadDate: new Date(),
-        fileUrl: URL.createObjectURL(uf.file),
-        ...uf.extractedData
-      } as Exam));
+    // Persist exams and notify parent
+    const completedExams: Exam[] = createdExams;
 
     if (completedExams.length > 0) {
       // Persist combined exams list into IndexedDB (merge with existing)
@@ -308,6 +351,74 @@ export function UploadExams({ onExamsUploaded, exams, onViewAllExams }: UploadEx
           </div>
         </>
       )}
+
+      {/* Course Info Prompt Dialog */}
+      <Dialog 
+        open={courseDialogOpen} 
+        onOpenChange={(open) => {
+          setCourseDialogOpen(open);
+          if (!open && courseDialogResolveRef.current) {
+            // Resolve as canceled if closed without submitting
+            courseDialogResolveRef.current(null);
+            courseDialogResolveRef.current = undefined;
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Ange kursinformation</DialogTitle>
+            <DialogDescription>
+              Vi kunde inte identifiera kurskod från filen "{courseDialogData.fileName}". Fyll i kurskod och kursnamn.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label htmlFor="courseCode">Kurskod</Label>
+              <Input
+                id="courseCode"
+                value={courseDialogData.courseCode}
+                onChange={(e) => setCourseDialogData(d => ({ ...d, courseCode: e.target.value }))}
+                placeholder="t.ex. TDA417"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="courseName">Kursnamn</Label>
+              <Input
+                id="courseName"
+                value={courseDialogData.courseName}
+                onChange={(e) => setCourseDialogData(d => ({ ...d, courseName: e.target.value }))}
+                placeholder="t.ex. Datastrukturer och algoritmer"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button 
+              variant="outline" 
+              onClick={() => {
+                const resolver = courseDialogResolveRef.current;
+                courseDialogResolveRef.current = undefined;
+                setCourseDialogOpen(false);
+                resolver?.(null);
+              }}
+            >
+              Avbryt
+            </Button>
+            <Button 
+              onClick={() => {
+                const code = courseDialogData.courseCode.trim().toUpperCase();
+                if (!code) return; // require code
+                const name = courseDialogData.courseName.trim();
+                const resolver = courseDialogResolveRef.current;
+                courseDialogResolveRef.current = undefined;
+                setCourseDialogOpen(false);
+                resolver?.({ courseCode: code, courseName: name });
+              }}
+            >
+              Spara
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
