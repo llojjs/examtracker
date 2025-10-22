@@ -34,6 +34,7 @@ export function ExamLibrary({ exams, onExamClick, onUpdateExams, courseTasks, on
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [selectedCourse, setSelectedCourse] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
+  const [examToDelete, setExamToDelete] = useState<string | null>(null);
   
   // Auto-select or change selected course when parent hints a focus course
   useEffect(() => {
@@ -200,6 +201,24 @@ export function ExamLibrary({ exams, onExamClick, onUpdateExams, courseTasks, on
     if (selectedCourse === courseToDelete) {
       setSelectedCourse(null);
     }
+  };
+
+  // Delete a single exam
+  const handleDeleteExam = (examId: string) => {
+    setExamToDelete(examId);
+  };
+
+  const confirmDeleteExam = () => {
+    if (!examToDelete) return;
+    const exam = exams.find(e => e.id === examToDelete);
+    const updated = exams.filter(e => e.id !== examToDelete);
+    onUpdateExams(updated);
+    if (exam) {
+      toast.success(`Tentan ${exam.courseCode}${exam.examDate ? ' ' + new Date(exam.examDate).toLocaleDateString('sv-SE') : ''} har tagits bort`);
+    } else {
+      toast.success('Tentan har tagits bort');
+    }
+    setExamToDelete(null);
   };
 
   const handleArchiveCourse = (courseCode: string, archive: boolean) => {
@@ -476,6 +495,28 @@ export function ExamLibrary({ exams, onExamClick, onUpdateExams, courseTasks, on
                     exam={exam}
                     onClick={() => onExamClick(exam)}
                     compact={viewMode === 'list'}
+                    actions={
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-7 w-7 p-0">
+                            <MoreVertical className="w-4 h-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => onExamClick(exam)}>
+                            Öppna
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            onClick={() => handleDeleteExam(exam.id)}
+                            className="text-destructive focus:text-destructive"
+                          >
+                            <Trash2 className="w-4 h-4 mr-2" />
+                            Ta bort tenta
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    }
                   />
                 ))}
               </div>
@@ -559,55 +600,54 @@ export function ExamLibrary({ exams, onExamClick, onUpdateExams, courseTasks, on
                       </div>
                     </div>
                     
-                    {/* Right side icons stacked vertically */}
-                    <div className="flex flex-col items-center gap-2 flex-shrink-0">
-                      <ChevronRight className="w-5 h-5 text-muted-foreground" />
-                      <div className="opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" className="h-5 w-5 p-0">
-                              <MoreVertical className="w-4 h-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={(e: React.MouseEvent) => {
-                              e.stopPropagation();
-                              handleEditCourse(courseCode, courseName);
-                            }}>
-                              <Edit2 className="w-4 h-4 mr-2" />
-                              Redigera kurs
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={(e: React.MouseEvent) => {
-                              e.stopPropagation();
-                              handleArchiveCourse(courseCode, !isArchived);
-                            }}>
-                              {isArchived ? (
-                                <>
-                                  <ArchiveRestore className="w-4 h-4 mr-2" />
-                                  Återställ kurs
-                                </>
-                              ) : (
-                                <>
-                                  <Archive className="w-4 h-4 mr-2" />
-                                  Arkivera kurs
-                                </>
-                              )}
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem 
-                              onClick={(e: React.MouseEvent) => {
-                                e.stopPropagation();
-                                handleDeleteCourse(courseCode);
-                              }}
-                              className="text-destructive focus:text-destructive"
-                            >
-                              <Trash2 className="w-4 h-4 mr-2" />
-                              Ta bort kurs
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </div>
-                    </div>
+                    {/* Right side chevron indicator removed to avoid overlap with actions */}
+                  </div>
+
+                  {/* Top-right actions (hover to reveal) */}
+                  <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity z-10" onClick={(e) => e.stopPropagation()}>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon" className="h-7 w-7 p-0">
+                          <MoreVertical className="w-4 h-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={(e: React.MouseEvent) => {
+                          e.stopPropagation();
+                          handleEditCourse(courseCode, courseName);
+                        }}>
+                          <Edit2 className="w-4 h-4 mr-2" />
+                          Redigera kurs
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={(e: React.MouseEvent) => {
+                          e.stopPropagation();
+                          handleArchiveCourse(courseCode, !isArchived);
+                        }}>
+                          {isArchived ? (
+                            <>
+                              <ArchiveRestore className="w-4 h-4 mr-2" />
+                              Återställ kurs
+                            </>
+                          ) : (
+                            <>
+                              <Archive className="w-4 h-4 mr-2" />
+                              Arkivera kurs
+                            </>
+                          )}
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem 
+                          onClick={(e: React.MouseEvent) => {
+                            e.stopPropagation();
+                            handleDeleteCourse(courseCode);
+                          }}
+                          className="text-destructive focus:text-destructive"
+                        >
+                          <Trash2 className="w-4 h-4 mr-2" />
+                          Ta bort kurs
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
                 </Card>
               );
@@ -629,6 +669,24 @@ export function ExamLibrary({ exams, onExamClick, onUpdateExams, courseTasks, on
           <AlertDialogFooter>
             <AlertDialogCancel>Avbryt</AlertDialogCancel>
             <AlertDialogAction onClick={confirmDeleteCourse} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Ta bort
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Delete Exam Dialog */}
+      <AlertDialog open={examToDelete !== null} onOpenChange={(open) => !open && setExamToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Ta bort tenta?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Är du säker på att du vill ta bort denna tenta? Denna åtgärd kan inte ångras.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Avbryt</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDeleteExam} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
               Ta bort
             </AlertDialogAction>
           </AlertDialogFooter>

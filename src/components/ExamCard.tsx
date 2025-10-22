@@ -9,9 +9,10 @@ interface ExamCardProps {
   exam: Exam;
   onClick: () => void;
   compact?: boolean;
+  actions?: React.ReactNode;
 }
 
-export function ExamCard({ exam, onClick, compact = false }: ExamCardProps) {
+export function ExamCard({ exam, onClick, compact = false, actions }: ExamCardProps) {
   const solvedCount = exam.questions.filter(q => q.status === 'solved').length;
   const totalCount = exam.questions.length;
   const progressPercent = totalCount > 0 ? (solvedCount / totalCount) * 100 : 0;
@@ -37,9 +38,14 @@ export function ExamCard({ exam, onClick, compact = false }: ExamCardProps) {
 
   return (
     <Card 
-      className="p-4 hover:shadow-md transition-shadow cursor-pointer"
+      className="p-4 hover:shadow-md transition-shadow cursor-pointer relative"
       onClick={onClick}
     >
+      {actions && (
+        <div className="absolute top-2 right-2 z-10" onClick={(e) => e.stopPropagation()}>
+          {actions}
+        </div>
+      )}
       <div className="flex items-start gap-3">
         <div className="flex-shrink-0">
           <div className="w-10 h-10 rounded-lg bg-success/10 flex items-center justify-center">

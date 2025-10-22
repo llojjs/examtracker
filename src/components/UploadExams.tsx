@@ -11,6 +11,7 @@ import { Exam } from '../types/exam';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
+import { toast } from 'sonner';
 
 interface UploadExamsProps {
   onExamsUploaded: (exams: Exam[]) => void;
@@ -90,6 +91,9 @@ export function UploadExams({ onExamsUploaded, exams, onViewAllExams }: UploadEx
     setUploadFiles(uploadFiles);
     setIsProcessing(true);
 
+    // Helper to compare dates by day
+    const dateKey = (d: Date | undefined) => d ? `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` : '';
+
     // Process files sequentially
     const createdExams: Exam[] = [];
     for (let i = 0; i < uploadFiles.length; i++) {
@@ -116,16 +120,57 @@ export function UploadExams({ onExamsUploaded, exams, onViewAllExams }: UploadEx
             continue;
           }
 
+          const codeUpper = promptResult.courseCode.trim().toUpperCase();
+          let resolvedName = promptResult.courseName.trim();
+          if (!resolvedName) {
+            const known = [...exams, ...createdExams].find(e => e.courseCode === codeUpper);
+            if (known?.courseName) {
+              resolvedName = known.courseName;
+            }
+          }
+          if (!resolvedName) {
+            resolvedName = `${codeUpper} - okänd kurs`;
+          }
           extractedData = {
             ...extractedData,
-            courseCode: promptResult.courseCode.trim().toUpperCase(),
-            courseName: promptResult.courseName.trim() || `${promptResult.courseCode.trim().toUpperCase()} - okänd kurs`,
+            courseCode: codeUpper,
+            courseName: resolvedName,
           } as Partial<Exam>;
+        }
+
+        // If parser provided a placeholder or missing course name, try to inherit from existing exams
+        if (extractedData.courseCode) {
+          const codeUpper = extractedData.courseCode.toString().toUpperCase();
+          const currentName = (extractedData.courseName || '').toString().trim();
+          const isPlaceholder = /ok[aä]nd kurs|unknown course/i.test(currentName);
+          if (!currentName || isPlaceholder) {
+            const known = [...exams, ...createdExams].find(e => e.courseCode === codeUpper);
+            if (known?.courseName) {
+              extractedData = { ...extractedData, courseName: known.courseName } as Partial<Exam>;
+            }
+          }
         }
         
         setUploadFiles(prev => prev.map((uf, idx) => 
           idx === i ? { ...uf, status: 'processing', progress: 80, extractedData } : uf
         ));
+
+        // Duplicate detection: same courseCode + same examDate (by day)
+        if (extractedData.courseCode && extractedData.examDate) {
+          const codeUpper = extractedData.courseCode.toString().toUpperCase();
+          const targetDate = dateKey(extractedData.examDate as Date);
+          const exists = [...exams, ...createdExams].some(e => 
+            e.courseCode.toUpperCase() === codeUpper && dateKey(e.examDate) === targetDate
+          );
+          if (exists) {
+            const msg = `Duplicerad tenta: ${codeUpper} (${targetDate}) finns redan`;
+            setUploadFiles(prev => prev.map((uf, idx) =>
+              idx === i ? { ...uf, status: 'error', error: msg } : uf
+            ));
+            toast.warning(msg);
+            continue;
+          }
+        }
 
         // Simulate final processing
         await new Promise(resolve => setTimeout(resolve, 500));
