@@ -1,5 +1,8 @@
 import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist';
 import type { Exam } from '../types/exam';
+import { detectCourseName } from './courseNameDetector';
+import { detectCourseCodeFromFilename as detectCourseCodeFromFilenameExt, detectCourseCodeFromText as detectCourseCodeFromTextExt } from './courseCodeDetector';
+import { detectQuestionsFromPages } from './questionDetector';
 
 // Helpers
 function normalizeDiacritics(input: string): string {
@@ -401,7 +404,7 @@ function extractQuestionsFromText2(text: string): Array<any> {
     const s = a.toLowerCase().charCodeAt(0);
     const e = b.toLowerCase().charCodeAt(0);
     const lo = Math.max('a'.charCodeAt(0), Math.min(s, e));
-    const hi = Math.min('h'.charCodeAt(0), Math.max(s, e));
+    const hi = Math.min('z'.charCodeAt(0), Math.max(s, e));
     const out: string[] = [];
     for (let c = lo; c <= hi; c++) out.push(String.fromCharCode(c));
     return out;
@@ -639,7 +642,7 @@ function extractQuestionsFromLines(lines: Array<{ text: string; page: number }>)
     const s = a.toLowerCase().charCodeAt(0);
     const e = b.toLowerCase().charCodeAt(0);
     const lo = Math.max('a'.charCodeAt(0), Math.min(s, e));
-    const hi = Math.min('h'.charCodeAt(0), Math.max(s, e));
+    const hi = Math.min('z'.charCodeAt(0), Math.max(s, e));
     const out: string[] = [];
     for (let c = lo; c <= hi; c++) out.push(String.fromCharCode(c));
     return out;
@@ -915,7 +918,7 @@ export async function parsePdf(file: File, opts?: { deepOcr?: boolean }): Promis
   const yearMatch = fileName.match(/20(\d{2})/);
   const dateMatch = fileName.match(/(\d{4})-(\d{2})-(\d{2})/);
 
-  let courseCode = detectCourseCodeFromFilename(fileName);
+  let courseCode = detectCourseCodeFromFilenameExt(fileName);
   const year = yearMatch ? parseInt(`20${yearMatch[1]}`) : undefined;
   const examDate = dateMatch
     ? new Date(
@@ -974,6 +977,35 @@ export async function parsePdf(file: File, opts?: { deepOcr?: boolean }): Promis
     if (!questionsDetected || questionsDetected.length === 0) {
       questionsDetected = extractQuestionsFromText2(textForParsing);
       debug.detectors.text2 = { count: (questionsDetected?.length || 0) };
+    }
+
+    // Final fallback: use layout-aware questionDetector on raw text items if still empty
+    if (!questionsDetected || questionsDetected.length === 0) {
+      try {
+        const detectorPages = [] as any[];
+        // Re-read minimal items to pass to detector (first up to 10 pages for speed)
+        const maxDetPages = Math.min(pdf.numPages || 1, 10);
+        for (let i = 1; i <= maxDetPages; i++) {
+          const page: any = await pdf.getPage(i);
+          const content: any = await page.getTextContent();
+          detectorPages.push({ page: i, items: (content?.items || []) });
+        }
+        const det = detectQuestionsFromPages(detectorPages as any);
+        if (det && det.tokens && det.tokens.length > 0) {
+          questionsDetected = det.tokens.map((tk: any) => ({
+            id: `q-${tk.token}`,
+            number: `${tk.token}`,
+            theme: [],
+            points: 0,
+            page: tk.page,
+            confidence: Math.round(Math.max(0, Math.min(1, tk.confidence ?? 0)) * 100),
+            status: 'not-started',
+            difficulty: 'medium',
+            comments: [],
+          }));
+          debug.detectors.layoutFallback = { count: questionsDetected.length };
+        }
+      } catch {}
     }
 
     // If no questions detected, expand OCR across more pages progressively
@@ -1035,17 +1067,22 @@ export async function parsePdf(file: File, opts?: { deepOcr?: boolean }): Promis
 
     // Optionally derive course code from OCR text if missing
     if (!courseCode && textForParsing) {
-      const detected = detectCourseCodeFromText(textForParsing);
+      const detected = detectCourseCodeFromTextExt(textForParsing);
       if (detected) courseCode = detected;
     }
 
     // Derive course name from text or filename
     let courseName: string | undefined;
-    if (textForParsing) {
-      courseName = detectCourseNameFromText2(textForParsing, courseCode) || detectCourseNameFromText(textForParsing, courseCode);
+    if (textForParsing || fileName) {
+      courseName = detectCourseName(textForParsing || '', fileName, courseCode);
     }
-    if (!courseName) {
-      courseName = detectCourseNameFromFilename2(fileName, courseCode) || detectCourseNameFromFilename(fileName, courseCode);
+    // Final cleanup: drop obvious headings like "Sektion 1 1 a" and trim punctuation
+    if (courseName) {
+      const cleaned = normalizeDiacritics(courseName).trim();
+      const reHeadingInline = /(sektion|section|uppgift|problem|fraga|question)\s*\d+/i;
+      const isBad = reHeadingInline.test(cleaned) || /^\s*\d/.test(cleaned);
+      const compact = cleaned.replace(/^[\-–—:,.\s]+|[\-–—:,.\s]+$/g, '').replace(/\s{2,}/g, ' ');
+      courseName = isBad ? undefined : compact;
     }
     debug.course = { courseCode, courseNameFromText: !!courseName, fileName };
 
@@ -1068,7 +1105,7 @@ export async function parsePdf(file: File, opts?: { deepOcr?: boolean }): Promis
     return {
       fileName,
       examDate,
-      courseName: courseName || (courseCode ? `${courseCode} - okänd kurs` : undefined),
+      courseName: "Ok\u00E4nt kursnamn",
       courseCode,
       year,
       totalPoints: Number.isFinite(totalPoints) ? totalPoints : 0,
@@ -1133,3 +1170,7 @@ try {
     (GlobalWorkerOptions as any).workerSrc = new URL('pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url).toString();
   }
 } catch {}
+
+
+
+

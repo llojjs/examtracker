@@ -16,6 +16,50 @@
               if (!req.url) return next();
               const url = new URL(req.url, 'http://localhost');
               if (url.pathname !== '/api/upload') return next();
+
+              const uploadsDir = path.resolve(process.cwd(), 'uploads');
+              await fsp.mkdir(uploadsDir, { recursive: true });
+
+              // Handle DELETE: best-effort mirror of server cleanup
+              if (req.method === 'DELETE') {
+                const id = (url.searchParams.get('id') || '').toString();
+                const byPath = (url.searchParams.get('path') || url.searchParams.get('file') || url.searchParams.get('filename') || url.searchParams.get('name') || '').toString();
+                async function walk(dir) {
+                  const out = [] as string[];
+                  try {
+                    const ents = await fsp.readdir(dir, { withFileTypes: true });
+                    for (const ent of ents) {
+                      const p = path.join(dir, ent.name);
+                      if (ent.isDirectory()) out.push(...await walk(p));
+                      else if (ent.isFile()) out.push(p);
+                    }
+                  } catch {}
+                  return out;
+                }
+                let deleted = 0;
+                if (id) {
+                  const all = await walk(uploadsDir);
+                  for (const abs of all) {
+                    if (path.basename(abs).startsWith(`${id}-`)) {
+                      try { await fsp.unlink(abs); deleted += 1; } catch {}
+                    }
+                  }
+                }
+                if (!id && byPath) {
+                  let rel = byPath.replace(/^[A-Za-z]:/i, '').replace(/^\\+|^\/+/, '');
+                  rel = rel.replace(/^uploads[\\/]/i, '');
+                  const idx = byPath.toLowerCase().indexOf('/uploads/');
+                  if (idx >= 0) rel = byPath.slice(idx + '/uploads/'.length);
+                  rel = rel.replace(/\\/g, '/');
+                  const abs = path.resolve(uploadsDir, rel);
+                  if (abs.startsWith(uploadsDir)) { try { await fsp.unlink(abs); deleted += 1; } catch {} }
+                }
+                res.statusCode = 200;
+                res.setHeader('Content-Type', 'application/json');
+                res.end(JSON.stringify({ ok: true, deleted }));
+                return;
+              }
+
               if (req.method !== 'POST') {
                 res.statusCode = 405;
                 res.setHeader('Content-Type', 'application/json');
@@ -27,9 +71,6 @@
               const id = (url.searchParams.get('id') || '').toString();
               const safeName = originalName.replace(/[^a-zA-Z0-9._-]/g, '_');
               const baseName = (id ? `${id}-` : '') + safeName;
-
-              const uploadsDir = path.resolve(process.cwd(), 'uploads');
-              await fsp.mkdir(uploadsDir, { recursive: true });
               const filePath = path.join(uploadsDir, baseName);
 
               const chunks: Buffer[] = [];

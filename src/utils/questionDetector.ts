@@ -126,22 +126,30 @@ function isHeaderFooter(y: number, pageMinY: number, pageMaxY: number, percent: 
   return null;
 }
 
-const headingWord = '(?:uppgift|problem|fraga|fråga|question|section|sektion|q)';
+// Heading words: no bare 'q' to avoid false positives, allow 'question' or 'q' with word boundary
+const headingWord = '(?:uppgift|problem|fr(?:a|å)ga|question|q\\b|section|sektion)';
+// Precompiled head regex (unicode + case-insensitive)
+const headRe = new RegExp(`^\\s*${headingWord}`, 'iu');
 // Ensure number is not immediately followed by point markers (p/poang/points)
-const reMainHead = new RegExp(`^\\s*(?:${headingWord}\\s*)?([1-9]\\d?)(?!\\s*p(?:oang|oints)?\\b)\\s*([\\.:\\)])?`, 'i');
-const reInlineMainSub = /^\s*([1-9]\d?)(?!\s*p(?:oang|points)?\b)\s*([a-zA-Z])\s*\)/;
-const reInlineCombined = /^\s*([1-9]\d?)(?!\s*p(?:oang|points)?\b)\s*([a-zA-Z])\s*\)/; // e.g., 2a)
-const reSubOnly = /^\s*\(?([a-zA-Z])\)?\s*\)/;
-const reSubRange = /deluppgift(?:er)?[^a-zA-Z]{0,10}([a-zA-Z])\s*[-–—]\s*([a-zA-Z])/i;
+const reMainHead = new RegExp(`^\\s*(?:${headingWord}\\s*)?([1-9]\\d?)(?!\\s*p(?:oang|oints)?\\b)\\s*([\\.:\\)])?`, 'iu');
+// Inline combined number+letter, e.g., 2a) or 2a. or 2a:
+const reInlineCombined = /^\s*([1-9]\d?)(?!\s*p(?:oang|points)?\b)\s*([a-zA-Z])\s*[\)\.:]/u; // e.g., 2a)
+const reSubOnly = /^\s*\(?([a-zA-Z])\)?\s*[\)\.:]/u;
+const reSubRange = /deluppgift(?:er)?[^a-zA-Z]{0,10}([a-zA-Z])\s*[\-\u2013\u2014]\s*([a-zA-Z])/iu;
 
-const reContext = /(poa?ng|points|task|scenario|svara|beskriv)/i;
+// Context keywords commonly following a question heading
+const reContext = /(poa?ng|points|task|scenario|svara|beskriv|motivera|f(?:ör|or)klara|definiera|bevisa|visa|ber[aä]kna)/iu;
 
-const reDateTime = /\b(?:\d{4}-\d{2}-\d{2}|\d{1,2}[\.\/\-]\d{1,2}[\.\/\-]\d{2,4}|\d{1,2}:\d{2})\b/;
-const reNumericRange = /\b\d+\s*[-–—]\s*\d+\b/;
-const rePageIndicator = /\b(?:sida|page)\s*\d+(?:\s*(?:av|of)\s*\d+)?\b/i;
-const reScoreSummary = /\b(?:max\s*poa?ng|betyg\s*\d|betyg\b|total(?:\s*poa?ng|\s*points)?|points?)\b/i;
-const reNumFollowedByPoints = new RegExp(`^\\s*(?:${headingWord}\\s*)?([1-9]\\d?)\\s{0,1}p(?:oang|oints)?\\b`, 'i');
-const reMultiNumbersRow = /(?:\b\d+(?:[\.,]\d+)?\b[\s,;:]{1,3}){3,}\d+/; // 4+ numbers
+// Date/time and non-question numeric patterns
+const reDateTime = /\b(?:\d{4}-\d{2}-\d{2}|\d{1,2}[\.\/\-]\d{1,2}[\.\/\-]\d{2,4}|\d{1,2}:\d{2}|(?:[01]\d|2[0-3])\d{2})\b/u;
+const reNumericRange = /\b\d+\s*[\-\u2013\u2014]\s*\d+\b/u;
+const rePageIndicator = /\b(?:sida|page)\b(?:\s*\d+(?:\s*(?:av|of)\s*\d+)?)?/iu;
+const reScoreSummary = /\b(?:max\s*poa?ng|betyg\s*\d|betyg\b|total(?:\s*poa?ng|\s*points)?|points?)\b/iu;
+// Number followed immediately by point marker variants (p, p), p., poang, points), allowing NBSP
+const reNumFollowedByPoints = new RegExp(`^\\s*(?:${headingWord}\\s*)?([1-9]\\d?)\\s?(?:\u00A0)?(?:p(?:[\)\.]|\\b)|poa?ng\\b|points\\b)`, 'iu');
+const reMultiNumbersRow = /(?:\b\d+(?:[\.,]\d+)?\b[\s,;:]{1,3}){3,}\d+/u; // 4+ numbers
+// Section heading to allow sequence reset
+const reSectionHeading = /^\s*(?:sektion|section)\s+\d+[a-z]?\b/iu;
 
 function letterRange(a: string, b: string): string[] {
   const s = a.toLowerCase().charCodeAt(0);
@@ -161,15 +169,25 @@ export function detectQuestionsFromPages(pages: PageInput[], cfg?: Partial<Detec
   let lastMain = 0;
   let lastMainPage = 0;
   let anyMainAccepted = false;
+  let lastSectionPage = -1;
+
+  // First pass: build lines for all pages and compute a global left-margin threshold
+  const linesByPage: Map<number, Line[]> = new Map();
+  const allXs: number[] = [];
+  for (const pi of pages) {
+    const lines = buildLinesFromItems(pi.items || [], pi.page, conf);
+    linesByPage.set(pi.page, lines);
+    for (const l of lines) allXs.push(l.x);
+  }
+  const xThresholdGlobal = percentile(allXs, conf.leftMarginPercentile);
 
   for (const pageInput of pages) {
     const { page, items, height } = pageInput;
-    if (!items || items.length === 0) { if (debug) debug.pages.push({ page, lines: 0 }); continue; }
-    const lines = buildLinesFromItems(items, page, conf);
-    const xs = lines.map(l => l.x);
-    const xThreshold = percentile(xs, conf.leftMarginPercentile);
-    const minY = Math.min(...lines.map(l => l.y));
-    const maxY = Math.max(...lines.map(l => l.y));
+    const lines = linesByPage.get(page) || [];
+    if (!items || items.length === 0 || lines.length === 0) { if (debug) debug.pages.push({ page, lines: 0 }); continue; }
+    const xThreshold = xThresholdGlobal;
+    const minY = 0;
+    const maxY = typeof height === 'number' && isFinite(height) ? height : Math.max(...lines.map(l => l.y));
     let i = 0;
     while (i < lines.length) {
       const ln = lines[i];
@@ -183,13 +201,12 @@ export function detectQuestionsFromPages(pages: PageInput[], cfg?: Partial<Detec
       let score = 0;
       let mainNum: number | null = null;
       let subLetter: string | null = null;
+      let excluded = false;
 
       let m = t.match(reMainHead);
-      let matchedHeadingWord = false;
       if (m) {
         mainNum = parseInt(m[1], 10);
-        const head = new RegExp('^\s*' + headingWord, 'i');
-        if (head.test(t)) { score += 3; reasons.push('headingWord'); matchedHeadingWord = true; }
+        if (headRe.test(t)) { score += 3; reasons.push('headingWord'); }
         if (m[2]) { score += 2; reasons.push('punct'); }
         // Reject if immediately followed by points marker like 20p / 20 p
         const fp = t.match(reNumFollowedByPoints);
@@ -224,8 +241,13 @@ export function detectQuestionsFromPages(pages: PageInput[], cfg?: Partial<Detec
       if (mainNum != null && ln.x <= xThreshold) { score += 2; reasons.push('leftMargin'); }
       if (mainNum != null && reContext.test(nearby)) { score += 1; reasons.push('contextWord'); }
 
-      // Exclusions
-      let excluded = false;
+      // Section heading: soft reset sequence and ignore line
+      if (reSectionHeading.test(t) && ln.x <= xThreshold) {
+        lastMain = 0; lastSectionPage = page; // soft reset
+        excluded = true; reasons.push('sectionHeading');
+      }
+
+      // Exclusions (additional signals)
       if (reDateTime.test(t) || reNumericRange.test(t)) { score -= 3; reasons.push('date/time'); }
       if (reMultiNumbersRow.test(t)) { score -= 2; reasons.push('multiNumbers'); }
       if (rePageIndicator.test(t)) { excluded = true; reasons.push('pageIndicator'); }
@@ -239,7 +261,9 @@ export function detectQuestionsFromPages(pages: PageInput[], cfg?: Partial<Detec
           if (mainNum === lastMain + 1) { score += 2; reasons.push('seq+1'); }
           else if (mainNum === lastMain) { score += 1; reasons.push('seqSame'); }
           else if (mainNum === lastMain + 2) { /* 0 change */ reasons.push('seq+2'); }
-          else if (mainNum < lastMain - 1 && page > lastMainPage + 1) { score -= 2; reasons.push('seqPenaltyBack'); }
+          else if (mainNum < lastMain - 1 && page > lastMainPage + 1 && !(lastSectionPage >= lastMainPage)) {
+            score -= 2; reasons.push('seqPenaltyBack');
+          }
         } else {
           // No main yet accepted
           if (mainNum > 5 && page <= 2) { score -= 3; reasons.push('earlyLarge'); }
@@ -247,21 +271,24 @@ export function detectQuestionsFromPages(pages: PageInput[], cfg?: Partial<Detec
         }
       }
 
+      const MAX_SCORE = 10;
+      const thr = conf.scoreThreshold;
+      const confFromScore = (s: number) => Math.max(0, Math.min(1, (s - thr) / Math.max(1, (MAX_SCORE - thr))))
       let acceptedMain = false;
       if (!excluded && mainNum != null && score >= conf.scoreThreshold) {
-        if (score >= conf.scoreThreshold) {
-          const token = String(mainNum);
-          const conf01 = Math.max(0, Math.min(1, (score - (conf.scoreThreshold - 1)) / 8));
-          if (!tokenIndex.has(token)) {
-            tokenIndex.set(token, allTokens.length);
-            allTokens.push({ token, kind: 'main', page, x: ln.x, y: ln.y, confidence: conf01 });
-          } else if (conf.debug) {
-            const idx = tokenIndex.get(token)!; const pos = { page, x: ln.x, y: ln.y };
-            allTokens[idx].positions = [...(allTokens[idx].positions || []), pos];
-          }
-          acceptedMain = true; lastMain = Math.max(lastMain, mainNum); lastMainPage = page; anyMainAccepted = true;
-          if (debug) debug.candidates.push({ page, text: t.slice(0, 140), kind: 'main', n: mainNum, score, reasons });
+        const token = String(mainNum);
+        const conf01 = confFromScore(score);
+        if (!tokenIndex.has(token)) {
+          tokenIndex.set(token, allTokens.length);
+          allTokens.push({ token, kind: 'main', page, x: ln.x, y: ln.y, confidence: conf01 });
+        } else if (conf.debug) {
+          const idx = tokenIndex.get(token)!; const pos = { page, x: ln.x, y: ln.y };
+          allTokens[idx].positions = [...(allTokens[idx].positions || []), pos];
         }
+        acceptedMain = true; lastMain = Math.max(lastMain, mainNum); lastMainPage = page; anyMainAccepted = true;
+        if (debug) debug.candidates.push({ page, text: t.slice(0, 140), kind: 'main', n: mainNum, score, reasons });
+      } else if (debug && (mainNum != null || reInlineCombined.test(t) || reSubOnly.test(t))) {
+        debug.candidates.push({ page, text: t.slice(0, 140), kind: 'excluded', score, reasons });
       }
 
       // Sub handling
@@ -270,7 +297,7 @@ export function detectQuestionsFromPages(pages: PageInput[], cfg?: Partial<Detec
         const parent = acceptedMain ? String(mainNum) : String(lastMain || (mainNum ?? ''));
         if (parent) {
           const token = `${parent}${subLetter}`;
-          const conf01 = Math.max(0, Math.min(1, (score - (conf.scoreThreshold - 2)) / 8));
+          const conf01 = confFromScore(score);
           if (!tokenIndex.has(token)) {
             tokenIndex.set(token, allTokens.length);
             allTokens.push({ token, kind: 'sub', parent, page, x: ln.x, y: ln.y, confidence: conf01 });
@@ -292,7 +319,7 @@ export function detectQuestionsFromPages(pages: PageInput[], cfg?: Partial<Detec
             const token = `${String(mainNum)}${L}`;
             if (!tokenIndex.has(token)) {
               tokenIndex.set(token, allTokens.length);
-              allTokens.push({ token, kind: 'sub', parent: String(mainNum), page, x: ln.x, y: ln.y, confidence: 0.6 });
+              allTokens.push({ token, kind: 'sub', parent: String(mainNum), page, x: ln.x, y: ln.y, confidence: confFromScore(score) });
             }
           }
         }
@@ -303,7 +330,11 @@ export function detectQuestionsFromPages(pages: PageInput[], cfg?: Partial<Detec
     if (debug) debug.pages.push({ page, lines: lines.length, xThreshold, minY, maxY });
   }
 
-  // Ensure document order by first appearance
-  const ordered = allTokens;
+  // Ensure document order: page asc, y desc (top->bottom), x asc
+  const ordered = [...allTokens].sort((a, b) => (a.page - b.page) || (b.y - a.y) || (a.x - b.x));
   return { tokens: ordered, debug };
 }
+
+
+
+

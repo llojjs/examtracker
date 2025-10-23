@@ -23,6 +23,41 @@ function sanitizeName(name) {
   return String(name || 'upload.pdf').replace(/[^a-zA-Z0-9._-]/g, '_');
 }
 
+// Remove previously uploaded files for a given exam id (prefix match: `${id}-*`).
+async function walkFiles(dir) {
+  const out = [];
+  try {
+    const ents = await fsp.readdir(dir, { withFileTypes: true });
+    for (const ent of ents) {
+      const p = path.join(dir, ent.name);
+      if (ent.isDirectory()) {
+        const sub = await walkFiles(p).catch(() => []);
+        out.push(...sub);
+      } else if (ent.isFile()) {
+        out.push(p);
+      }
+    }
+  } catch {}
+  return out;
+}
+
+async function cleanupUploadsForId(id) {
+  if (!id) return 0;
+  try {
+    const all = await walkFiles(UPLOAD_DIR);
+    let count = 0;
+    for (const abs of all) {
+      const base = path.basename(abs);
+      if (base.startsWith(`${id}-`)) {
+        try { await fsp.unlink(abs); count += 1; } catch {}
+      }
+    }
+    return count;
+  } catch {
+    return 0;
+  }
+}
+
 // Multer storage for multipart/form-data
 const storage = multer.diskStorage({
   destination: function (_req, _file, cb) {
@@ -92,6 +127,8 @@ async function main() {
       if (sig !== '%PDF-') {
         return res.status(415).json({ ok: false, error: 'Invalid file type (expected PDF)' });
       }
+      // Proactively remove any previous uploads for this id to avoid leftovers
+      if (id) await cleanupUploadsForId(id).catch(() => {});
       await fsp.writeFile(filePath, req.body);
       return res.json({ ok: true, path: `/uploads/${name}` });
     } catch (err) {
@@ -105,7 +142,52 @@ async function main() {
     const file = req.file;
     if (!file) return res.status(400).json({ ok: false, error: 'No file uploaded' });
     const rel = `/uploads/${path.basename(file.path)}`;
+    // Best-effort cleanup of other files for the same id (keep the just-uploaded one)
+    const q = req.query || {};
+    const id = (q.id || '').toString();
+    if (id) {
+      fsp.readdir(UPLOAD_DIR).then((files) => {
+        const keep = path.basename(file.path);
+        return Promise.all(
+          files
+            .filter((f) => f.startsWith(`${id}-`) && f !== keep)
+            .map((f) => fsp.unlink(path.join(UPLOAD_DIR, f)).catch(() => {}))
+        );
+      }).catch(() => {});
+    }
     res.json({ ok: true, path: rel });
+  });
+
+  // Delete uploaded file(s) by id or file/path (best-effort)
+  app.delete('/api/upload', async (req, res) => {
+    try {
+      const q = req.query || {};
+      const id = (q.id || '').toString();
+      const byPath = (q.path || q.file || q.filename || q.name || '').toString();
+
+      let deleted = 0;
+      if (id) {
+        deleted += await cleanupUploadsForId(id);
+      }
+
+      if (!id && byPath) {
+        // Normalize and resolve relative to UPLOAD_DIR; support '/uploads/...'
+        let rel = byPath.replace(/^[A-Za-z]:/i, '').replace(/^\\+|^\/+/, '');
+        rel = rel.replace(/^uploads[\\/]/i, '');
+        // If byPath starts with '/uploads/', strip the prefix
+        const idx = byPath.toLowerCase().indexOf('/uploads/');
+        if (idx >= 0) rel = byPath.slice(idx + '/uploads/'.length);
+        rel = rel.replace(/\\/g, '/');
+        const abs = path.resolve(UPLOAD_DIR, rel);
+        if (abs.startsWith(UPLOAD_DIR)) {
+          try { await fsp.unlink(abs); deleted += 1; } catch {}
+        }
+      }
+
+      return res.json({ ok: true, deleted });
+    } catch (err) {
+      return res.status(500).json({ ok: false, error: String(err) });
+    }
   });
 
   // JSON body parser for API

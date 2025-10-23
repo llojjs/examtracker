@@ -322,7 +322,7 @@ export async function loadCourseTasksAsync(): Promise<CourseChecklist[]> {
 // exist (e.g., in production static hosting), this safely no-ops and returns null.
 export async function savePdfToServer(
   file: Blob,
-  opts: { filename: string; id?: string }
+  opts: { filename: string; id?: string; timeoutMs?: number }
 ): Promise<string | null> {
   try {
     if (typeof fetch === 'undefined') return null;
@@ -334,17 +334,58 @@ export async function savePdfToServer(
     const url = `${base ? base.replace(/\/$/, '') : ''}/api/upload?${params.toString()}`;
     const headers: Record<string,string> = { 'Content-Type': (file as any)?.type || 'application/pdf' };
     if (token) headers['Authorization'] = `Bearer ${token}`;
+    const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : undefined;
+    const timeout = Math.max(1000, Number(opts.timeoutMs ?? 12000));
+    let timer: any;
+    if (ctrl) timer = setTimeout(() => ctrl.abort(), timeout);
     const res = await fetch(url, {
       method: 'POST',
       headers,
       body: file,
+      signal: ctrl?.signal as any,
     });
+    if (timer) clearTimeout(timer);
     if (!res.ok) return null;
     const data = await res.json().catch(() => ({} as any));
     return (data && (data.path || data.filePath)) ? (data.path || data.filePath) : null;
   } catch (err) {
-    // Endpoint missing or request blocked: ignore
+    // Endpoint missing, blocked, or timed out: ignore
     return null;
+  }
+}
+
+// Best-effort remove uploaded PDF(s) for a given exam id from dev server uploads/
+// Uses DELETE /api/upload?id=<id>. No-ops if endpoint is unavailable.
+export async function deletePdfFromServerById(id: string): Promise<boolean> {
+  try {
+    if (!id || typeof fetch === 'undefined') return false;
+    const base = ((import.meta as any)?.env?.VITE_API_URL as string) || '';
+    const token = ((import.meta as any)?.env?.VITE_API_TOKEN as string) || '';
+    const url = `${base ? base.replace(/\/$/, '') : ''}/api/upload?id=${encodeURIComponent(id)}`;
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const res = await fetch(url, { method: 'DELETE', headers });
+    if (!res.ok) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Best-effort delete by relative path (e.g., '/uploads/abc.pdf' or '/uploads/exams/abc.pdf').
+export async function deletePdfFromServerByPath(p: string): Promise<boolean> {
+  try {
+    if (!p || typeof fetch === 'undefined') return false;
+    const base = ((import.meta as any)?.env?.VITE_API_URL as string) || '';
+    const token = ((import.meta as any)?.env?.VITE_API_TOKEN as string) || '';
+    const url = `${base ? base.replace(/\/$/, '') : ''}/api/upload?path=${encodeURIComponent(p)}`;
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const res = await fetch(url, { method: 'DELETE', headers });
+    if (!res.ok) return false;
+    return true;
+  } catch {
+    return false;
   }
 }
 

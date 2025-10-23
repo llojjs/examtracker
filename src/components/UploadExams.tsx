@@ -111,13 +111,19 @@ export function UploadExams({ onExamsUploaded, exams, settings, onViewAllExams }
     // Process files sequentially
     const createdExams: Exam[] = [];
     const replacedExams: Exam[] = [];
+    // Time limits
+    const PARSE_TIMEOUT_MS = 90000; // 90s parse timeout to avoid infinite spinner
+
     for (let i = 0; i < uploadFiles.length; i++) {
       setUploadFiles(prev => prev.map((uf, idx) => 
         idx === i ? { ...uf, status: 'processing', progress: 30 } : uf
       ));
 
       try {
-        let extractedData = await parsePdf(uploadFiles[i].file, { deepOcr: !!settings.deepOcr });
+        // Parse with timeout to prevent hanging
+        const parsePromise = parsePdf(uploadFiles[i].file, { deepOcr: !!settings.deepOcr });
+        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), PARSE_TIMEOUT_MS));
+        let extractedData = await Promise.race<any>([parsePromise, timeoutPromise]);
 
         // Fallback prompt when courseCode or courseName is missing
         if (!extractedData.courseCode || !extractedData.courseName) {
@@ -144,7 +150,7 @@ export function UploadExams({ onExamsUploaded, exams, settings, onViewAllExams }
             }
           }
           if (!resolvedName) {
-            resolvedName = `${codeUpper} - okänd kurs`;
+            resolvedName = `Ok\u00E4nt kursnamn`;
           }
           extractedData = {
             ...extractedData,
@@ -157,7 +163,7 @@ export function UploadExams({ onExamsUploaded, exams, settings, onViewAllExams }
         if (extractedData.courseCode) {
           const codeUpper = extractedData.courseCode.toString().toUpperCase();
           const currentName = (extractedData.courseName || '').toString().trim();
-          const isPlaceholder = /ok[aä]nd kurs|unknown course/i.test(currentName);
+          const isPlaceholder = /(ok(?:a|\u00E4)nt kursnamn|ok(?:a|\u00E4)nd kurs|unknown course)/i.test(currentName);
           if (!currentName || isPlaceholder) {
             const known = [...exams, ...createdExams].find(e => e.courseCode === codeUpper);
             if (known?.courseName) {
@@ -196,21 +202,18 @@ export function UploadExams({ onExamsUploaded, exams, settings, onViewAllExams }
                 fileUrl: URL.createObjectURL(uploadFiles[i].file),
                 fileBlob: uploadFiles[i].file,
               } as Exam;
-              // Try to persist raw PDF to local uploads/ via dev server
-              try {
-                const savedPath = await savePdfToServer(
-                  uploadFiles[i].file,
-                  { filename: extractedData.fileName || uploadFiles[i].file.name, id: updated.id }
-                );
-                if (savedPath) {
-                  toast.success('PDF sparad', { description: savedPath });
-                }
-              } catch {}
-              // Update UI file state
+              // Update UI state first so we don't block on network
               setUploadFiles(prev => prev.map((uf, idx) => 
                 idx === i ? { ...uf, status: 'complete', progress: 100, extractedData } : uf
               ));
               replacedExams.push(updated);
+              // Fire-and-forget persist to local dev server with timeout
+              void savePdfToServer(
+                uploadFiles[i].file,
+                { filename: extractedData.fileName || uploadFiles[i].file.name, id: updated.id, timeoutMs: 12000 }
+              ).then((savedPath) => {
+                if (savedPath) toast.success('PDF sparad', { description: savedPath });
+              }).catch(() => {});
               continue;
             }
           }
@@ -232,20 +235,18 @@ export function UploadExams({ onExamsUploaded, exams, settings, onViewAllExams }
           fileBlob: uploadFiles[i].file,
           ...(extractedData as any),
         } as Exam;
-        // Try to persist raw PDF to local uploads/ via dev server
-        try {
-          const savedPath = await savePdfToServer(
-            uploadFiles[i].file,
-            { filename: extractedData?.fileName || uploadFiles[i].file.name, id: newExam.id }
-          );
-          if (savedPath) {
-            toast.success('PDF sparad', { description: savedPath });
-          }
-        } catch {}
+        // Fire-and-forget persist to local uploads/ via dev server (with timeout)
+        void savePdfToServer(
+          uploadFiles[i].file,
+          { filename: extractedData?.fileName || uploadFiles[i].file.name, id: newExam.id, timeoutMs: 12000 }
+        ).then((savedPath) => {
+          if (savedPath) toast.success('PDF sparad', { description: savedPath });
+        }).catch(() => {});
         createdExams.push(newExam);
       } catch (error) {
+        const isTimeout = (error as any)?.message === 'timeout';
         setUploadFiles(prev => prev.map((uf, idx) => 
-          idx === i ? { ...uf, status: 'error', error: 'Kunde inte bearbeta filen' } : uf
+          idx === i ? { ...uf, status: 'error', error: isTimeout ? 'Tidsgräns överskreds vid bearbetning' : 'Kunde inte bearbeta filen' } : uf
         ));
       }
     }
@@ -548,7 +549,7 @@ export function UploadExams({ onExamsUploaded, exams, settings, onViewAllExams }
               <strong>Befintlig:</strong> {dupDialogData.existing?.courseCode} – {dupDialogData.existing?.courseName}
             </div>
             <div>
-              <strong>Ny:</strong> {dupDialogData.incoming?.courseCode} – {dupDialogData.incoming?.courseName || 'okänd kurs'}
+              <strong>Ny:</strong> {dupDialogData.incoming?.courseCode} – {dupDialogData.incoming?.courseName || 'Ok\u00E4nt kursnamn'}
             </div>
             <p>Vill du ersätta den befintliga tentan?</p>
           </div>
@@ -578,3 +579,10 @@ export function UploadExams({ onExamsUploaded, exams, settings, onViewAllExams }
     </div>
   );
 }
+
+
+
+
+
+
+

@@ -15,6 +15,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { ExamCard } from './ExamCard';
 import { CourseChecklist } from './CourseChecklist';
 import { Exam, ExamStatus, Task, CourseChecklist as CourseChecklistType } from '../types/exam';
+import { saveExamsAsync } from '../utils/storage';
+import { deletePdfFromServerById, deletePdfFromServerByPath } from '../utils/storage';
 import { toast } from 'sonner';
 
 interface ExamLibraryProps {
@@ -186,9 +188,32 @@ export function ExamLibrary({ exams, onExamClick, onUpdateExams, courseTasks, on
     setCourseToDelete(courseCode);
   };
 
-  const confirmDeleteCourse = () => {
+  const confirmDeleteCourse = async () => {
     if (!courseToDelete) return;
-    
+    // Best-effort: cleanup any uploaded PDFs for all exams in this course
+    try {
+      const toRemove = exams.filter(e => e.courseCode === courseToDelete);
+      for (const ex of toRemove) {
+        // Primary: delete by id (handles id-prefixed files anywhere under uploads)
+        // eslint-disable-next-line no-await-in-loop
+        await deletePdfFromServerById(ex.id).catch(() => {});
+        // Secondary best-effort: try by common path guesses (legacy files without id prefix)
+        const fname = (ex.fileName || '').toString();
+        if (fname) {
+          const guesses = [
+            `/uploads/${ex.id}-${fname}`,
+            `/uploads/${fname}`,
+            `/uploads/exams/${ex.id}-${fname}`,
+            `/uploads/exams/${fname}`,
+          ];
+          for (const p of guesses) {
+            // eslint-disable-next-line no-await-in-loop
+            await deletePdfFromServerByPath(p).catch(() => {});
+          }
+        }
+      }
+    } catch {}
+
     const updatedExams = exams.filter(e => e.courseCode !== courseToDelete);
     onUpdateExams(updatedExams);
     
@@ -208,9 +233,11 @@ export function ExamLibrary({ exams, onExamClick, onUpdateExams, courseTasks, on
     setExamToDelete(examId);
   };
 
-  const confirmDeleteExam = () => {
+  const confirmDeleteExam = async () => {
     if (!examToDelete) return;
     const exam = exams.find(e => e.id === examToDelete);
+    // Best-effort: cleanup uploaded PDF(s) for this exam id on dev server
+    try { await deletePdfFromServerById(examToDelete); } catch {}
     const updated = exams.filter(e => e.id !== examToDelete);
     onUpdateExams(updated);
     if (exam) {
@@ -235,28 +262,31 @@ export function ExamLibrary({ exams, onExamClick, onUpdateExams, courseTasks, on
     setEditCourseName(courseName);
   };
 
-  const confirmEditCourse = () => {
+  const confirmEditCourse = async () => {
     if (!courseToEdit || !editCourseCode.trim() || !editCourseName.trim()) return;
-    
+    const codeUpper = editCourseCode.trim().toUpperCase();
+    const nameTrim = editCourseName.trim();
+
     const updatedExams = exams.map(e => 
       e.courseCode === courseToEdit.code 
-        ? { ...e, courseCode: editCourseCode, courseName: editCourseName }
+        ? { ...e, courseCode: codeUpper, courseName: nameTrim }
         : e
     );
     onUpdateExams(updatedExams);
-    
-    // Update tasks as well
+    try { await saveExamsAsync(updatedExams); } catch {}
+
+    // Update tasks as well (normalize to same code)
     const updatedCourseTasks = courseTasks.map(ct =>
       ct.courseCode === courseToEdit.code
-        ? { ...ct, courseCode: editCourseCode }
+        ? { ...ct, courseCode: codeUpper }
         : ct
     );
     onUpdateCourseTasks(updatedCourseTasks);
-    
+
     toast.success('Kursen har uppdaterats');
     setCourseToEdit(null);
     if (selectedCourse === courseToEdit.code) {
-      setSelectedCourse(editCourseCode);
+      setSelectedCourse(codeUpper);
     }
   };
 
