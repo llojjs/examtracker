@@ -45,6 +45,32 @@ export interface DetectResult {
   tokens: TokenMeta[];
   debug?: any;
 }
+// Debug info structure to avoid never[] inference issues when pushing
+// entries into the debug arrays.
+interface DebugPageInfo {
+  page: number;
+  lines: number;
+  xThreshold?: number;
+  minY?: number;
+  maxY?: number;
+}
+
+type DebugCandidateKind = 'main' | 'sub' | 'excluded';
+
+interface DebugCandidateInfo {
+  page: number;
+  text: string;
+  kind: DebugCandidateKind;
+  n?: number;
+  parent?: string;
+  score: number;
+  reasons: string[];
+}
+
+interface DebugInfo {
+  pages: DebugPageInfo[];
+  candidates: DebugCandidateInfo[];
+}
 
 const DEFAULT_CONFIG: DetectorConfig = {
   yTolerancePx: 3,
@@ -127,8 +153,7 @@ function isHeaderFooter(y: number, pageMinY: number, pageMaxY: number, percent: 
 }
 
 // Heading words: no bare 'q' to avoid false positives, allow 'question' or 'q' with word boundary
-const headingWord = '(?:uppgift|problem|fr(?:a|å)ga|question|q\\b|section|sektion)';
-// Precompiled head regex (unicode + case-insensitive)
+const headingWord = '(?:uppgift|problem|fr(?:a|\\u00E5)ga|question|q\\b|section|sektion)';
 const headRe = new RegExp(`^\\s*${headingWord}`, 'iu');
 // Ensure number is not immediately followed by point markers (p/poang/points)
 const reMainHead = new RegExp(`^\\s*(?:${headingWord}\\s*)?([1-9]\\d?)(?!\\s*p(?:oang|oints)?\\b)\\s*([\\.:\\)])?`, 'iu');
@@ -138,8 +163,7 @@ const reSubOnly = /^\s*\(?([a-zA-Z])\)?\s*[\)\.:]/u;
 const reSubRange = /deluppgift(?:er)?[^a-zA-Z]{0,10}([a-zA-Z])\s*[\-\u2013\u2014]\s*([a-zA-Z])/iu;
 
 // Context keywords commonly following a question heading
-const reContext = /(poa?ng|points|task|scenario|svara|beskriv|motivera|f(?:ör|or)klara|definiera|bevisa|visa|ber[aä]kna)/iu;
-
+const reContext = /(poa?ng|points|task|scenario|svara|beskriv|motivera|f(?:\u00F6r|or)klara|definiera|bevisa|visa|ber(?:a|\u00E4)kna)/iu;
 // Date/time and non-question numeric patterns
 const reDateTime = /\b(?:\d{4}-\d{2}-\d{2}|\d{1,2}[\.\/\-]\d{1,2}[\.\/\-]\d{2,4}|\d{1,2}:\d{2}|(?:[01]\d|2[0-3])\d{2})\b/u;
 const reNumericRange = /\b\d+\s*[\-\u2013\u2014]\s*\d+\b/u;
@@ -163,7 +187,7 @@ function letterRange(a: string, b: string): string[] {
 
 export function detectQuestionsFromPages(pages: PageInput[], cfg?: Partial<DetectorConfig>): DetectResult {
   const conf: DetectorConfig = { ...DEFAULT_CONFIG, ...(cfg || {}) };
-  const debug = conf.debug ? { pages: [], candidates: [] as any[] } : undefined;
+  const debug: DebugInfo | undefined = conf.debug ? { pages: [], candidates: [] } : undefined;
   const allTokens: TokenMeta[] = [];
   const tokenIndex = new Map<string, number>();
   let lastMain = 0;
@@ -334,6 +358,7 @@ export function detectQuestionsFromPages(pages: PageInput[], cfg?: Partial<Detec
   const ordered = [...allTokens].sort((a, b) => (a.page - b.page) || (b.y - a.y) || (a.x - b.x));
   return { tokens: ordered, debug };
 }
+
 
 
 

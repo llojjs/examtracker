@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { ArrowLeft, FileText, ChevronRight, Clock, Plus, Trash2 } from 'lucide-react';
+import { ArrowLeft, FileText, ChevronRight, Clock, Plus } from 'lucide-react';
 import { Button } from './ui/button';
 import { Card } from './ui/card';
 import { Badge } from './ui/badge';
@@ -9,23 +9,12 @@ import { Checkbox } from './ui/checkbox';
 import { Progress } from './ui/progress';
 import { QuestionDetail } from './QuestionDetail';
 import { Exam, Question } from '../types/exam';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from './ui/alert-dialog';
 
 interface ExamDetailProps {
   exam: Exam;
   onBack: () => void;
   onUpdateQuestion: (questionId: string, updates: Partial<Question>) => void;
   onAddQuestion: (partial?: Partial<Question>) => void;
-  onDeleteQuestion: (questionId: string) => void;
 }
 
 const statusColors: Record<string, string> = {
@@ -42,9 +31,8 @@ const statusLabels: Record<string, string> = {
   'review': 'Repetera',
 };
 
-export function ExamDetailView({ exam, onBack, onUpdateQuestion, onAddQuestion, onDeleteQuestion }: ExamDetailProps) {
+export function ExamDetailView({ exam, onBack, onUpdateQuestion, onAddQuestion }: ExamDetailProps) {
   const [selectedQuestion, setSelectedQuestion] = useState<Question | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<Question | null>(null);
 
   const formatDate = (date?: Date) => {
     if (!date) return 'Okänt datum';
@@ -86,49 +74,6 @@ export function ExamDetailView({ exam, onBack, onUpdateQuestion, onAddQuestion, 
   const handleCheckboxToggle = (questionId: string, currentStatus: string) => {
     const newStatus = currentStatus === 'solved' ? 'not-started' : 'solved';
     onUpdateQuestion(questionId, { status: newStatus });
-  };
-
-  // Parse user input like "2", "2a", "(a)", "a)", "2 a)", "2a."
-  // Returns normalized like "2" or "2a". If only a letter, attach to last main number.
-  const parseQuestionNumber = (raw: string): string | null => {
-    const s = (raw || '').trim();
-    if (!s) return null;
-    const cleaned = s
-      .replace(/^\(/, '')
-      .replace(/\)$/, '')
-      .replace(/\s+/g, '')
-      .replace(/[\.:]$/, '')
-      .toLowerCase();
-    const m = cleaned.match(/^(\d{1,2})?([a-z])?$/i);
-    if (!m) return null;
-    const main = m[1];
-    const sub = (m[2] || '').toLowerCase();
-    if (main) {
-      return sub ? `${parseInt(main, 10)}${sub}` : String(parseInt(main, 10));
-    }
-    if (sub) {
-      const mainNums = exam.questions
-        .map(q => parseInt(String(q.number).match(/\d+/)?.[0] || '0', 10))
-        .filter(n => !Number.isNaN(n));
-      if (mainNums.length === 0) return null;
-      const lastMain = Math.max(...mainNums);
-      return `${lastMain}${sub}`;
-    }
-    return null;
-  };
-
-  const handleAddClick = () => {
-    // Ask user for number, support sub-letters like a), b), 2a.
-    const input = window.prompt('Skriv uppgiftsnummer (t.ex. 3, 2a eller a)). Lämna tomt för nästa nummer:', '');
-    if (input === null) return; // cancelled
-    const s = (input || '').trim();
-    if (!s) { onAddQuestion(); return; }
-    const normalized = parseQuestionNumber(s);
-    if (!normalized) {
-      window.alert('Ogiltigt nummer. Exempel: 3, 2a eller a)');
-      return;
-    }
-    onAddQuestion({ number: normalized });
   };
 
   return (
@@ -209,7 +154,7 @@ export function ExamDetailView({ exam, onBack, onUpdateQuestion, onAddQuestion, 
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <h3>Uppgifter ({exam.questions.length})</h3>
-            <Button size="sm" onClick={handleAddClick}>
+            <Button size="sm" onClick={() => onAddQuestion()}>
               <Plus className="w-4 h-4 mr-2" /> Lägg till uppgift
             </Button>
           </div>
@@ -256,20 +201,7 @@ export function ExamDetailView({ exam, onBack, onUpdateQuestion, onAddQuestion, 
                         </p>
                       )}
                     </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        title="Ta bort uppgift"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setDeleteTarget(question);
-                        }}
-                      >
-                        <Trash2 className="w-4 h-4 text-danger" />
-                      </Button>
-                      <ChevronRight className="w-5 h-5 text-muted-foreground cursor-pointer" onClick={() => setSelectedQuestion(question)} />
-                    </div>
+                    <ChevronRight className="w-5 h-5 text-muted-foreground flex-shrink-0 cursor-pointer" onClick={() => setSelectedQuestion(question)} />
                   </div>
                 </Card>
               ))}
@@ -289,33 +221,7 @@ export function ExamDetailView({ exam, onBack, onUpdateQuestion, onAddQuestion, 
           )}
         </DialogContent>
       </Dialog>
-
-      {/* Delete confirmation */}
-      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Ta bort uppgift?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {deleteTarget ? `Är du säker på att du vill ta bort Uppgift ${deleteTarget.number}? Detta går inte att ångra.` : ''}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setDeleteTarget(null)}>Avbryt</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-danger text-white hover:bg-danger/90"
-              onClick={() => {
-                if (deleteTarget) {
-                  if (selectedQuestion?.id === deleteTarget.id) setSelectedQuestion(null);
-                  onDeleteQuestion(deleteTarget.id);
-                }
-                setDeleteTarget(null);
-              }}
-            >
-              Ta bort
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 }
+

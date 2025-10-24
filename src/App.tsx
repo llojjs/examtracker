@@ -138,6 +138,26 @@ export default function App() {
     setCurrentView('library');
   };
 
+  const handleDeleteQuestion = (examId: string, questionId: string) => {
+    setExams(prev => prev.map(exam => {
+      if (exam.id !== examId) return exam;
+      const updatedQuestions = exam.questions.filter(q => q.id !== questionId);
+      const updated: Exam = { ...exam, questions: updatedQuestions } as Exam;
+      updated.totalPoints = updated.questions.reduce((s, q) => s + (q.points || 0), 0);
+      return updated;
+    }));
+
+    if (selectedExam?.id === examId) {
+      setSelectedExam(prev => {
+        if (!prev) return prev;
+        const updatedQuestions = prev.questions.filter(q => q.id !== questionId);
+        const updated: Exam = { ...prev, questions: updatedQuestions } as Exam;
+        updated.totalPoints = updated.questions.reduce((s, q) => s + (q.points || 0), 0);
+        return updated;
+      });
+    }
+  };
+
   const handleAddQuestion = (examId: string, partial?: Partial<Question>) => {
     setExams(prev => prev.map(exam => {
       if (exam.id !== examId) return exam;
@@ -386,6 +406,7 @@ export default function App() {
                   handleUpdateQuestion(selectedExam.id, questionId, updates)
                 }
                 onAddQuestion={(partial) => handleAddQuestion(selectedExam.id, partial)}
+                onDeleteQuestion={(questionId) => handleDeleteQuestion(selectedExam.id, questionId)}
               />
             )}
 
