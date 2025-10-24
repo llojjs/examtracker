@@ -212,7 +212,19 @@ export function UploadExams({ onExamsUploaded, exams, settings, onViewAllExams }
                 uploadFiles[i].file,
                 { filename: extractedData.fileName || uploadFiles[i].file.name, id: updated.id, timeoutMs: 12000 }
               ).then((savedPath) => {
-                if (savedPath) toast.success('PDF sparad', { description: savedPath });
+                if (savedPath) {
+                  toast.success('PDF sparad', { description: savedPath });
+                  // Persist the server URL so it survives reloads even if File blob is unavailable
+                  (async () => {
+                    try {
+                      const apiBase = ((import.meta as any)?.env?.VITE_API_URL as string) || '';
+                      const finalUrl = apiBase ? `${apiBase.replace(/\/$/, '')}${savedPath}` : savedPath;
+                      const all = await loadExamsAsync();
+                      const merged = all.map(e => e.id === updated.id ? { ...e, fileUrl: finalUrl } as Exam : e);
+                      await saveExamsAsync(merged);
+                    } catch {}
+                  })();
+                }
               }).catch(() => {});
               continue;
             }
@@ -240,7 +252,18 @@ export function UploadExams({ onExamsUploaded, exams, settings, onViewAllExams }
           uploadFiles[i].file,
           { filename: extractedData?.fileName || uploadFiles[i].file.name, id: newExam.id, timeoutMs: 12000 }
         ).then((savedPath) => {
-          if (savedPath) toast.success('PDF sparad', { description: savedPath });
+          if (savedPath) {
+            toast.success('PDF sparad', { description: savedPath });
+            (async () => {
+              try {
+                const apiBase = ((import.meta as any)?.env?.VITE_API_URL as string) || '';
+                const finalUrl = apiBase ? `${apiBase.replace(/\/$/, '')}${savedPath}` : savedPath;
+                const all = await loadExamsAsync();
+                const merged = all.map(e => e.id === newExam.id ? { ...e, fileUrl: finalUrl } as Exam : e);
+                await saveExamsAsync(merged);
+              } catch {}
+            })();
+          }
         }).catch(() => {});
         createdExams.push(newExam);
       } catch (error) {

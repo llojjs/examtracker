@@ -78,6 +78,12 @@ export async function loadExamsAsync(): Promise<Exam[]> {
         try {
           restored.fileUrl = URL.createObjectURL(restored.fileBlob as any);
         } catch {}
+      } else {
+        // If no blob exists but a stored URL remains, prefer non-blob URLs (e.g., server path)
+        if (typeof restored.fileUrl === 'string' && restored.fileUrl.startsWith('blob:')) {
+          // Blob URL from a previous session is invalid now
+          delete (restored as any).fileUrl;
+        }
       }
       return restored;
     });
